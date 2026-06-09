@@ -1,67 +1,50 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="BikeTracker" />
-  <meta name="theme-color" content="#1E1E1E" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="BikeTracker"/>
+  <meta name="theme-color" content="#0F0F0F"/>
   <title>BikeTracker</title>
-
-  <!-- App icon for home screen (simple SVG converted inline) -->
-  <link rel="apple-touch-icon" href="icon.png" />
-
-  <!-- React + Babel loaded from CDN — no build step needed -->
+  <link rel="apple-touch-icon" href="icon.png"/>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <style>
-    /* Prevent white flash while JS loads */
-    body { background: #1E1E1E; margin: 0; }
-  </style>
+  <style>html,body,#root{height:100%;margin:0;background:#0F0F0F}body{overscroll-behavior:none}</style>
 </head>
 <body>
-  <div id="root"></div>
-
-  <script type="text/babel">
-    /* Pull React hooks into scope — Babel/UMD builds expose them on the React global */
-    const { useState, useEffect, useReducer, useContext, createContext } = React;
-
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useReducer, useContext, createContext, useRef } = React;
 
 /**
  * @typedef {Object} Ride
  * @property {string} id
  * @property {number} distanceKm
  * @property {number} durationMinutes
- * @property {string} date            — ISO string
- * @property {string} [notes]         — optional rider notes
+ * @property {string} date
+ * @property {string} notes
  */
 
 /**
  * @typedef {Object} ServiceLogEntry
  * @property {string} id
- * @property {string} date   — ISO string
- * @property {string} note   — free-text service note
+ * @property {string} date
+ * @property {string} note
  */
 
 /**
  * @typedef {'distance'|'time'} IntervalType
- *
  * @typedef {Object} BikeComponent
- * @property {string}           id
- * @property {string}           name
- * @property {IntervalType}     intervalType  — 'distance' (km) or 'time' (minutes)
- * @property {number}           intervalValue — e.g. 500 km or 3000 min
- * @property {number}           warnBuffer    — warn when this many km/min remain
- *                                              (replaces warnPercent from v1)
- * @property {number}           accumulated   — usage since last service
- * @property {ServiceLogEntry[]} serviceLog   — history of service events with notes
+ * @property {string}            id
+ * @property {string}            name
+ * @property {IntervalType}      intervalType
+ * @property {number}            intervalValue
+ * @property {number}            warnBuffer     — remaining distance/time at which to warn
+ * @property {number}            accumulated
+ * @property {ServiceLogEntry[]} serviceLog
  */
 
 /**
@@ -85,19 +68,10 @@
 // STORAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "biketracker_v2";
-
+const STORAGE_KEY = "biketracker_v3";
 const storage = {
-  load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
-  },
-  save(state) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch (e) { console.error("BikeTracker: persist failed", e); }
-  },
+  load() { try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; } catch { return null; } },
+  save(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) { console.error(e); } },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,122 +79,76 @@ const storage = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const units = {
-  kmToMi: (km) => km * 0.621371,
   miToKm: (mi) => mi / 0.621371,
-
-  /** Parse "HH:MM" string → total minutes (handles "1:30" → 90, "0:45" → 45) */
-  parseHHMM(str) {
-    if (!str) return 0;
-    const [hPart, mPart] = String(str).split(":");
-    const h = parseInt(hPart, 10) || 0;
-    const m = parseInt(mPart, 10) || 0;
-    return h * 60 + Math.min(m, 59);
-  },
-
-  /** Convert total minutes → "HH:MM" string for input display */
-  minutesToHHMM(minutes) {
-    const h = Math.floor(minutes / 60);
-    const m = Math.round(minutes % 60);
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-  },
-
-  /** "1h 30m" style display label */
+  formatDistance(km, unit) { return unit === "mi" ? `${(km * 0.621371).toFixed(1)} mi` : `${km.toFixed(1)} km`; },
   formatDuration(minutes) {
-    const h = Math.floor(minutes / 60);
-    const m = Math.round(minutes % 60);
+    const h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
     if (h === 0) return `${m}m`;
     if (m === 0) return `${h}h`;
     return `${h}h ${m}m`;
   },
-
-  formatDistance(km, unit) {
-    if (unit === "mi") return `${(km * 0.621371).toFixed(1)} mi`;
-    return `${km.toFixed(1)} km`;
+  parseHHMM(str) {
+    if (!str) return 0;
+    const [h, m] = String(str).split(":");
+    return (parseInt(h, 10) || 0) * 60 + Math.min(parseInt(m, 10) || 0, 59);
   },
-
-  /** Display the interval threshold of a component */
-  formatInterval(comp, unit) {
-    if (comp.intervalType === "distance") return units.formatDistance(comp.intervalValue, unit);
-    return units.formatDuration(comp.intervalValue);
+  minutesToHHMM(minutes) {
+    const h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   },
-
-  /** Display how much has accumulated */
-  formatAccumulated(comp, unit) {
-    if (comp.intervalType === "distance") return units.formatDistance(comp.accumulated, unit);
-    return units.formatDuration(comp.accumulated);
-  },
-
-  /** Display the warn buffer in user-friendly terms */
-  formatWarnBuffer(comp, unit) {
-    if (comp.intervalType === "distance") return units.formatDistance(comp.warnBuffer, unit);
-    return units.formatDuration(comp.warnBuffer);
-  },
+  formatInterval(c, unit) { return c.intervalType === "distance" ? units.formatDistance(c.intervalValue, unit) : units.formatDuration(c.intervalValue); },
+  formatAccumulated(c, unit) { return c.intervalType === "distance" ? units.formatDistance(c.accumulated, unit) : units.formatDuration(c.accumulated); },
+  formatBuffer(c, unit) { return c.intervalType === "distance" ? units.formatDistance(c.warnBuffer, unit) : units.formatDuration(c.warnBuffer); },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RIDE SERVICE
+// RIDE SERVICE  (Strava stub — replace build() body to ingest from API)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const rideService = {
-  /**
-   * Validate and normalise ride data before it enters state.
-   * ── STRAVA INTEGRATION POINT ────────────────────────────────────────────────
-   * Replace this function body to ingest from Strava:
-   *   const act = await stravaClient.getActivity(activityId);
-   *   rideData = { distanceKm: act.distance / 1000, durationMinutes: act.moving_time / 60 };
-   * ────────────────────────────────────────────────────────────────────────────
-   */
-  build(rideData) {
-    return {
-      id: crypto.randomUUID(),
-      distanceKm: Math.max(0, Number(rideData.distanceKm) || 0),
-      durationMinutes: Math.max(0, Number(rideData.durationMinutes) || 0),
-      date: rideData.date || new Date().toISOString(),
-      notes: rideData.notes || "",
-    };
+  build(data) {
+    // ── STRAVA INTEGRATION POINT ──────────────────────────────────────────
+    // const act = await stravaClient.getActivity(id);
+    // data = { distanceKm: act.distance/1000, durationMinutes: act.moving_time/60 };
+    // ─────────────────────────────────────────────────────────────────────
+    return { id: crypto.randomUUID(), distanceKm: Math.max(0, +data.distanceKm || 0), durationMinutes: Math.max(0, +data.durationMinutes || 0), date: data.date || new Date().toISOString(), notes: data.notes || "" };
   },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT STATUS HELPER
-// warnBuffer: warn when (intervalValue - accumulated) <= warnBuffer
+// STATUS HELPER
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getComponentStatus(comp) {
+function getStatus(comp) {
   const pct = Math.min((comp.accumulated / comp.intervalValue) * 100, 100);
-  const remaining = comp.intervalValue - comp.accumulated;
+  const remaining = Math.max(comp.intervalValue - comp.accumulated, 0);
   let status = "ok";
   if (comp.accumulated >= comp.intervalValue) status = "overdue";
   else if (remaining <= comp.warnBuffer) status = "warning";
-  return { pct, status, remaining: Math.max(remaining, 0) };
+  return { pct, status, remaining };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SEED DATA
 // ─────────────────────────────────────────────────────────────────────────────
 
-function createSeedData() {
-  const bikeId = crypto.randomUUID();
-  const now = new Date().toISOString();
+function seed() {
+  const id = crypto.randomUUID(), now = new Date().toISOString();
   return {
-    bikes: [{
-      id: bikeId,
-      name: "Trek Domane SL5",
-      color: "#FFD600",
+    bikes: [{ id, name: "Trek Domane SL5", color: "#FFD600", createdAt: now,
       components: [
-        { id: crypto.randomUUID(), name: "Chain",                intervalType: "distance", intervalValue: 500,  warnBuffer: 100, accumulated: 427, serviceLog: [] },
-        { id: crypto.randomUUID(), name: "Fork Service",         intervalType: "time",     intervalValue: 3000, warnBuffer: 300, accumulated: 2450, serviceLog: [] },
-        { id: crypto.randomUUID(), name: "Brake Pads",           intervalType: "distance", intervalValue: 1500, warnBuffer: 200, accumulated: 620, serviceLog: [] },
-        { id: crypto.randomUUID(), name: "Rear Derailleur Cable",intervalType: "distance", intervalValue: 2000, warnBuffer: 250, accumulated: 580, serviceLog: [] },
-        { id: crypto.randomUUID(), name: "Tubeless Sealant",     intervalType: "time",     intervalValue: 360,  warnBuffer: 60,  accumulated: 185, serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Chain",                 intervalType: "distance", intervalValue: 500,  warnBuffer: 100, accumulated: 427, serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Fork Service",          intervalType: "time",     intervalValue: 3000, warnBuffer: 300, accumulated: 2450, serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Brake Pads",            intervalType: "distance", intervalValue: 1500, warnBuffer: 200, accumulated: 620, serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Rear Derailleur Cable", intervalType: "distance", intervalValue: 2000, warnBuffer: 250, accumulated: 580, serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Tubeless Sealant",      intervalType: "time",     intervalValue: 360,  warnBuffer: 60,  accumulated: 185, serviceLog: [] },
       ],
       rides: [
         { id: crypto.randomUUID(), distanceKm: 42, durationMinutes: 95, date: now, notes: "Morning loop, good conditions" },
         { id: crypto.randomUUID(), distanceKm: 28, durationMinutes: 60, date: now, notes: "" },
       ],
-      createdAt: now,
     }],
-    activeBikeId: bikeId,
+    activeBikeId: id,
     distanceUnit: "km",
   };
 }
@@ -229,132 +157,64 @@ function createSeedData() {
 // REDUCER
 // ─────────────────────────────────────────────────────────────────────────────
 
-function appReducer(state, action) {
+function reducer(state, action) {
   switch (action.type) {
-
-    case "SET_ACTIVE_BIKE":
-      return { ...state, activeBikeId: action.bikeId };
+    case "SET_ACTIVE_BIKE": return { ...state, activeBikeId: action.id };
+    case "TOGGLE_UNIT": return { ...state, distanceUnit: state.distanceUnit === "km" ? "mi" : "km" };
 
     case "ADD_BIKE": {
-      const nb = { id: crypto.randomUUID(), name: action.name, color: action.color, components: [], rides: [], createdAt: new Date().toISOString() };
-      return { ...state, bikes: [...state.bikes, nb], activeBikeId: nb.id };
+      const b = { id: crypto.randomUUID(), name: action.name, color: action.color, components: [], rides: [], createdAt: new Date().toISOString() };
+      return { ...state, bikes: [...state.bikes, b], activeBikeId: b.id };
     }
-
+    case "EDIT_BIKE":
+      return { ...state, bikes: state.bikes.map(b => b.id !== action.id ? b : { ...b, name: action.name, color: action.color }) };
     case "DELETE_BIKE": {
-      const rem = state.bikes.filter(b => b.id !== action.bikeId);
-      return { ...state, bikes: rem, activeBikeId: rem.length ? rem[0].id : null };
+      const rem = state.bikes.filter(b => b.id !== action.id);
+      return { ...state, bikes: rem, activeBikeId: rem[0]?.id ?? null };
     }
 
     case "ADD_RIDE": {
-      const ride = rideService.build(action.rideData);
-      return {
-        ...state,
-        bikes: state.bikes.map(bike => {
-          if (bike.id !== action.bikeId) return bike;
-          const updatedComponents = bike.components.map(c => ({
-            ...c,
-            accumulated: c.intervalType === "distance"
-              ? c.accumulated + ride.distanceKm
-              : c.accumulated + ride.durationMinutes,
-          }));
-          return { ...bike, rides: [ride, ...bike.rides], components: updatedComponents };
-        }),
-      };
+      const ride = rideService.build(action.data);
+      return { ...state, bikes: state.bikes.map(b => {
+        if (b.id !== action.bikeId) return b;
+        return { ...b, rides: [ride, ...b.rides], components: b.components.map(c => ({ ...c, accumulated: c.accumulated + (c.intervalType === "distance" ? ride.distanceKm : ride.durationMinutes) })) };
+      })};
     }
-
-    // Edit a ride: adjusts component accumulators by the delta
     case "EDIT_RIDE": {
-      return {
-        ...state,
-        bikes: state.bikes.map(bike => {
-          if (bike.id !== action.bikeId) return bike;
-          const oldRide = bike.rides.find(r => r.id === action.rideId);
-          if (!oldRide) return bike;
-          const newDistKm = Math.max(0, Number(action.rideData.distanceKm) || 0);
-          const newDurMin = Math.max(0, Number(action.rideData.durationMinutes) || 0);
-          const deltaDist = newDistKm - oldRide.distanceKm;
-          const deltaTime = newDurMin - oldRide.durationMinutes;
-          const updatedRides = bike.rides.map(r =>
-            r.id !== action.rideId ? r : { ...r, distanceKm: newDistKm, durationMinutes: newDurMin, notes: action.rideData.notes ?? r.notes }
-          );
-          const updatedComponents = bike.components.map(c => ({
-            ...c,
-            accumulated: Math.max(0, c.accumulated + (c.intervalType === "distance" ? deltaDist : deltaTime)),
-          }));
-          return { ...bike, rides: updatedRides, components: updatedComponents };
-        }),
-      };
+      return { ...state, bikes: state.bikes.map(b => {
+        if (b.id !== action.bikeId) return b;
+        const old = b.rides.find(r => r.id === action.rideId);
+        if (!old) return b;
+        const nd = Math.max(0, +action.data.distanceKm || 0), nt = Math.max(0, +action.data.durationMinutes || 0);
+        const dd = nd - old.distanceKm, dt = nt - old.durationMinutes;
+        return { ...b,
+          rides: b.rides.map(r => r.id !== action.rideId ? r : { ...r, distanceKm: nd, durationMinutes: nt, notes: action.data.notes ?? r.notes }),
+          components: b.components.map(c => ({ ...c, accumulated: Math.max(0, c.accumulated + (c.intervalType === "distance" ? dd : dt)) })),
+        };
+      })};
     }
-
-    // Delete a ride: subtract its contribution from accumulators
     case "DELETE_RIDE": {
-      return {
-        ...state,
-        bikes: state.bikes.map(bike => {
-          if (bike.id !== action.bikeId) return bike;
-          const ride = bike.rides.find(r => r.id === action.rideId);
-          if (!ride) return bike;
-          const updatedComponents = bike.components.map(c => ({
-            ...c,
-            accumulated: Math.max(0, c.accumulated - (c.intervalType === "distance" ? ride.distanceKm : ride.durationMinutes)),
-          }));
-          return { ...bike, rides: bike.rides.filter(r => r.id !== action.rideId), components: updatedComponents };
-        }),
-      };
+      return { ...state, bikes: state.bikes.map(b => {
+        if (b.id !== action.bikeId) return b;
+        const ride = b.rides.find(r => r.id === action.rideId);
+        if (!ride) return b;
+        return { ...b, rides: b.rides.filter(r => r.id !== action.rideId), components: b.components.map(c => ({ ...c, accumulated: Math.max(0, c.accumulated - (c.intervalType === "distance" ? ride.distanceKm : ride.durationMinutes)) })) };
+      })};
     }
 
     case "ADD_COMPONENT": {
-      const nc = {
-        id: crypto.randomUUID(),
-        name: action.component.name,
-        intervalType: action.component.intervalType,
-        intervalValue: Number(action.component.intervalValue),
-        warnBuffer: Number(action.component.warnBuffer),
-        accumulated: 0,
-        serviceLog: [],
-      };
-      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: [...b.components, nc] }) };
+      const c = { id: crypto.randomUUID(), name: action.data.name, intervalType: action.data.intervalType, intervalValue: +action.data.intervalValue, warnBuffer: +action.data.warnBuffer, accumulated: 0, serviceLog: [] };
+      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: [...b.components, c] }) };
     }
-
     case "EDIT_COMPONENT":
-      return {
-        ...state,
-        bikes: state.bikes.map(b => b.id !== action.bikeId ? b : {
-          ...b,
-          components: b.components.map(c => c.id !== action.componentId ? c : {
-            ...c,
-            name: action.fields.name,
-            intervalType: action.fields.intervalType,
-            intervalValue: Number(action.fields.intervalValue),
-            warnBuffer: Number(action.fields.warnBuffer),
-          }),
-        }),
-      };
-
+      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: b.components.map(c => c.id !== action.compId ? c : { ...c, name: action.data.name, intervalType: action.data.intervalType, intervalValue: +action.data.intervalValue, warnBuffer: +action.data.warnBuffer }) }) };
     case "DELETE_COMPONENT":
-      return {
-        ...state,
-        bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: b.components.filter(c => c.id !== action.componentId) }),
-      };
-
+      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: b.components.filter(c => c.id !== action.compId) }) };
     case "SERVICE_COMPONENT":
-      return {
-        ...state,
-        bikes: state.bikes.map(b => b.id !== action.bikeId ? b : {
-          ...b,
-          components: b.components.map(c => c.id !== action.componentId ? c : {
-            ...c,
-            accumulated: 0,
-            serviceLog: [{ id: crypto.randomUUID(), date: new Date().toISOString(), note: action.note || "" }, ...c.serviceLog],
-          }),
-        }),
-      };
+      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: b.components.map(c => c.id !== action.compId ? c : { ...c, accumulated: 0, serviceLog: [{ id: crypto.randomUUID(), date: new Date().toISOString(), note: action.note || "" }, ...c.serviceLog] }) }) };
 
-    case "TOGGLE_UNIT":
-      return { ...state, distanceUnit: state.distanceUnit === "km" ? "mi" : "km" };
-
-    default:
-      return state;
+    case "IMPORT_DATA": return action.state;
+    default: return state;
   }
 }
 
@@ -362,615 +222,562 @@ function appReducer(state, action) {
 // CONTEXT
 // ─────────────────────────────────────────────────────────────────────────────
 
-const AppContext = createContext(null);
-
+const Ctx = createContext(null);
 function AppProvider({ children }) {
-  const [state, dispatch] = useReducer(appReducer, null, () => storage.load() || createSeedData());
+  const [state, dispatch] = useReducer(reducer, null, () => storage.load() || seed());
   useEffect(() => { storage.save(state); }, [state]);
-  const activeBike = state.bikes.find(b => b.id === state.activeBikeId) || null;
-  return <AppContext.Provider value={{ state, dispatch, activeBike }}>{children}</AppContext.Provider>;
+  const activeBike = state.bikes.find(b => b.id === state.activeBikeId) ?? null;
+  return <Ctx.Provider value={{ state, dispatch, activeBike }}>{children}</Ctx.Provider>;
 }
-
-function useApp() { return useContext(AppContext); }
+function useApp() { return useContext(Ctx); }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STYLES
+// DESIGN TOKENS & GLOBAL CSS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BIKE_COLOURS = ["#FFD600","#FF5722","#E91E63","#9C27B0","#3F51B5","#2196F3","#00BCD4","#4CAF50","#FF9800","#795548"];
+const COLOURS = ["#FFD600","#FF5252","#E040FB","#536DFE","#00BCD4","#00C853","#FF6D00","#37474F","#F06292","#26C6DA"];
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --yellow:#FFD600;--charcoal:#1E1E1E;--white:#FFFFFF;--grey-bg:#F5F5F5;--grey-mid:#E0E0E0;--grey-text:#757575;
-  --red:#F44336;--red-bg:#FFEBEE;--orange:#FF9800;--orange-bg:#FFF3E0;--green:#4CAF50;--green-bg:#E8F5E9;
-  --shadow-sm:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.04);
-  --shadow-md:0 4px 12px rgba(0,0,0,.08),0 2px 4px rgba(0,0,0,.04);
-  --radius-sm:8px;--radius-md:12px;--radius-lg:16px;--radius-xl:24px;
-  --font:'DM Sans',system-ui,sans-serif;--font-mono:'DM Mono',monospace;
-  --transition:all 0.2s cubic-bezier(.4,0,.2,1)
+  --accent:#FFD600;
+  --bg:#0F0F0F;
+  --surface:#1A1A1A;
+  --surface2:#242424;
+  --surface3:#2E2E2E;
+  --border:#333333;
+  --text:#F0F0F0;
+  --text2:#A0A0A0;
+  --text3:#606060;
+  --green:#22C55E;--green-bg:rgba(34,197,94,.12);--green-text:#4ADE80;
+  --yellow:#F59E0B;--yellow-bg:rgba(245,158,11,.12);--yellow-text:#FCD34D;
+  --red:#EF4444;--red-bg:rgba(239,68,68,.12);--red-text:#FCA5A5;
+  --accent-bg:rgba(255,214,0,.1);
+  --radius:10px;--radius-lg:16px;--radius-xl:20px;
+  --shadow:0 2px 8px rgba(0,0,0,.4);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.5);
+  --font:'Inter',system-ui,sans-serif;
+  --nav-h:64px;
+  --transition:all .18s cubic-bezier(.4,0,.2,1);
 }
-body{font-family:var(--font);background:var(--grey-bg);color:var(--charcoal);min-height:100vh;-webkit-font-smoothing:antialiased}
-.app-shell{min-height:100vh;display:flex;flex-direction:column}
-.topbar{background:var(--charcoal);padding:0 1rem;height:56px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100}
-.topbar-logo{display:flex;align-items:center;gap:8px;font-weight:600;font-size:17px;color:#fff;letter-spacing:-.3px}
-.topbar-logo-dot{width:10px;height:10px;border-radius:50%;background:var(--yellow);flex-shrink:0}
-.topbar-spacer{flex:1}
-.unit-toggle{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:20px;color:#fff;font-family:var(--font-mono);font-size:11px;font-weight:500;padding:4px 10px;cursor:pointer;transition:var(--transition);letter-spacing:.5px}
-.unit-toggle:hover{background:rgba(255,255,255,.18)}
-.main-content{flex:1;max-width:900px;width:100%;margin:0 auto;padding:1.5rem 1rem 6rem}
-.bike-selector-row{display:flex;align-items:center;gap:10px;margin-bottom:1.5rem;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
-.bike-selector-row::-webkit-scrollbar{display:none}
-.bike-chip{display:flex;align-items:center;gap:7px;background:var(--white);border:1.5px solid var(--grey-mid);border-radius:999px;padding:6px 14px 6px 8px;font-size:13px;font-weight:500;cursor:pointer;transition:var(--transition);white-space:nowrap;flex-shrink:0;box-shadow:var(--shadow-sm)}
-.bike-chip:hover{border-color:var(--charcoal)}
-.bike-chip.active{background:var(--charcoal);color:#fff;border-color:var(--charcoal)}
-.bike-chip-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
-.add-bike-btn{display:flex;align-items:center;background:transparent;border:1.5px dashed var(--grey-mid);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:500;color:var(--grey-text);cursor:pointer;transition:var(--transition);white-space:nowrap;flex-shrink:0}
-.add-bike-btn:hover{border-color:var(--charcoal);color:var(--charcoal)}
-.alert-banner{display:flex;align-items:flex-start;gap:10px;background:var(--red-bg);border:1px solid #FFCDD2;border-radius:var(--radius-md);padding:12px 14px;margin-bottom:1rem;font-size:13px;line-height:1.5;animation:slideDown .2s ease}
-.alert-banner.warning{background:var(--orange-bg);border-color:#FFE0B2}
-.alert-banner-icon{font-size:16px;flex-shrink:0;margin-top:1px}
-.alert-banner strong{display:block;font-size:13px;font-weight:600;margin-bottom:2px}
-.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.5rem}
-.stat-card{background:var(--white);border-radius:var(--radius-md);padding:16px;box-shadow:var(--shadow-sm)}
-.stat-card-label{font-size:11px;font-weight:500;color:var(--grey-text);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px}
-.stat-card-value{font-size:22px;font-weight:600;letter-spacing:-.5px;color:var(--charcoal);line-height:1}
-.stat-card-sub{font-size:11px;color:var(--grey-text);margin-top:4px}
-.add-ride-cta{display:flex;align-items:center;justify-content:space-between;background:var(--yellow);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:1.5rem;cursor:pointer;transition:var(--transition);border:none;width:100%;text-align:left;box-shadow:var(--shadow-sm)}
-.add-ride-cta:hover{transform:translateY(-1px);box-shadow:var(--shadow-md)}
-.add-ride-cta:active{transform:translateY(0)}
-.add-ride-cta-text{font-size:17px;font-weight:600;color:var(--charcoal)}
-.add-ride-cta-sub{font-size:12px;color:rgba(30,30,30,.6);margin-top:2px}
-.add-ride-cta-icon{width:40px;height:40px;background:var(--charcoal);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem}
-.section-title{font-size:16px;font-weight:600;color:var(--charcoal);letter-spacing:-.2px}
-.section-action{background:none;border:1.5px solid var(--grey-mid);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:500;color:var(--charcoal);cursor:pointer;transition:var(--transition);display:flex;align-items:center;gap:4px}
-.section-action:hover{background:var(--charcoal);color:#fff;border-color:var(--charcoal)}
-.component-list{display:flex;flex-direction:column;gap:10px}
-.component-card{background:var(--white);border-radius:var(--radius-md);padding:16px;box-shadow:var(--shadow-sm);transition:var(--transition);border:1px solid transparent;cursor:pointer}
-.component-card:hover{box-shadow:var(--shadow-md)}
-.component-card.overdue{border-color:#FFCDD2;background:#FFFAFA}
-.component-card.warning{border-color:#FFE0B2;background:#FFFDF5}
-.component-card-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;gap:10px}
-.component-name{font-size:14px;font-weight:600;color:var(--charcoal);line-height:1.3}
-.component-badge{font-size:10px;font-weight:600;letter-spacing:.4px;text-transform:uppercase;padding:3px 8px;border-radius:999px;flex-shrink:0;margin-top:1px}
-.badge-ok{background:var(--green-bg);color:#2E7D32}
-.badge-warning{background:var(--orange-bg);color:#E65100}
-.badge-overdue{background:var(--red-bg);color:#B71C1C}
-.component-meta-item{font-size:12px;color:var(--grey-text)}
-.component-meta-item strong{color:var(--charcoal);font-weight:600}
-.progress-wrap{margin-bottom:12px}
-.progress-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--grey-text);margin-bottom:5px;font-family:var(--font-mono)}
-.progress-track{height:8px;background:var(--grey-bg);border-radius:999px;overflow:hidden}
-.progress-fill{height:100%;border-radius:999px;transition:width .6s cubic-bezier(.4,0,.2,1);min-width:4px}
-.progress-fill.ok{background:var(--green)}
-.progress-fill.warning{background:var(--orange)}
-.progress-fill.overdue{background:var(--red)}
-.progress-track-wrapper{position:relative}
-.progress-warn-marker{position:absolute;top:-2px;width:2px;height:12px;background:rgba(0,0,0,.25);border-radius:1px;pointer-events:none}
-.component-card-footer{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.last-serviced-text{font-size:11px;color:var(--grey-text)}
-.card-action-row{display:flex;gap:6px;align-items:center}
-.service-btn{background:var(--charcoal);color:#fff;border:none;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:500;cursor:pointer;transition:var(--transition)}
-.service-btn:hover{background:#333;transform:scale(1.02)}
-.service-btn:active{transform:scale(.98)}
-.icon-btn{background:none;border:1.5px solid var(--grey-mid);color:var(--grey-text);cursor:pointer;padding:5px 8px;border-radius:var(--radius-sm);transition:var(--transition);font-size:13px;line-height:1;display:flex;align-items:center}
-.icon-btn:hover{background:var(--grey-bg);border-color:var(--charcoal);color:var(--charcoal)}
-.icon-btn.danger:hover{background:var(--red-bg);border-color:var(--red);color:var(--red)}
-.rides-list{display:flex;flex-direction:column;gap:8px}
-.ride-item{background:var(--white);border-radius:var(--radius-sm);padding:12px 14px;display:flex;align-items:center;justify-content:space-between;box-shadow:var(--shadow-sm);font-size:13px;gap:8px}
-.ride-item-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
-.ride-dot{width:8px;height:8px;border-radius:50%;background:var(--yellow);flex-shrink:0}
-.ride-distance{font-weight:600;color:var(--charcoal)}
-.ride-duration{color:var(--grey-text);font-size:12px}
-.ride-notes-preview{font-size:11px;color:var(--grey-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
-.ride-date{font-size:11px;color:var(--grey-text);font-family:var(--font-mono);flex-shrink:0}
-.ride-actions{display:flex;gap:4px;flex-shrink:0}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .15s ease}
-@media(min-width:600px){.modal-overlay{align-items:center;padding:1rem}}
-.modal{background:var(--white);border-radius:var(--radius-xl) var(--radius-xl) 0 0;padding:24px 20px 32px;width:100%;max-width:520px;max-height:92vh;overflow-y:auto;animation:slideUp .2s cubic-bezier(.4,0,.2,1)}
-@media(min-width:600px){.modal{border-radius:var(--radius-xl);padding:28px}}
-.modal-handle{width:36px;height:4px;background:var(--grey-mid);border-radius:999px;margin:0 auto 20px}
-@media(min-width:600px){.modal-handle{display:none}}
-.modal-title{font-size:20px;font-weight:600;color:var(--charcoal);margin-bottom:20px;letter-spacing:-.4px}
-.modal-subtitle{font-size:13px;color:var(--grey-text);margin-top:-14px;margin-bottom:18px}
-.form-field{margin-bottom:16px}
-.form-label{display:block;font-size:12px;font-weight:600;color:var(--grey-text);letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px}
-.form-input{width:100%;padding:10px 12px;border:1.5px solid var(--grey-mid);border-radius:var(--radius-sm);font-family:var(--font);font-size:15px;color:var(--charcoal);transition:var(--transition);background:var(--white);-webkit-appearance:none}
-.form-input:focus{outline:none;border-color:var(--charcoal);box-shadow:0 0 0 3px rgba(30,30,30,.08)}
-.form-textarea{width:100%;padding:10px 12px;border:1.5px solid var(--grey-mid);border-radius:var(--radius-sm);font-family:var(--font);font-size:14px;color:var(--charcoal);transition:var(--transition);background:var(--white);resize:vertical;min-height:72px;line-height:1.5}
-.form-textarea:focus{outline:none;border-color:var(--charcoal);box-shadow:0 0 0 3px rgba(30,30,30,.08)}
-.form-input-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.colour-picker-row{display:flex;gap:8px;flex-wrap:wrap}
-.colour-swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:var(--transition);flex-shrink:0}
-.colour-swatch.selected{border-color:var(--charcoal);transform:scale(1.15)}
-.modal-footer{display:flex;gap:10px;margin-top:24px}
-.btn-primary{flex:1;background:var(--charcoal);color:#fff;border:none;border-radius:var(--radius-sm);padding:13px;font-family:var(--font);font-size:15px;font-weight:600;cursor:pointer;transition:var(--transition)}
-.btn-primary:hover{background:#333}
-.btn-primary:active{transform:scale(.99)}
-.btn-primary:disabled{opacity:.4;cursor:not-allowed}
-.btn-secondary{background:var(--grey-bg);color:var(--charcoal);border:1.5px solid var(--grey-mid);border-radius:var(--radius-sm);padding:13px 20px;font-family:var(--font);font-size:15px;font-weight:500;cursor:pointer;transition:var(--transition)}
-.btn-secondary:hover{background:var(--grey-mid)}
-.form-hint{font-size:11px;color:var(--grey-text);margin-top:4px}
-.interval-type-tabs{display:flex;background:var(--grey-bg);border-radius:var(--radius-sm);padding:3px;gap:3px;margin-bottom:12px}
-.interval-tab{flex:1;padding:8px;border:none;border-radius:6px;font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;transition:var(--transition);background:transparent;color:var(--grey-text)}
-.interval-tab.active{background:var(--white);color:var(--charcoal);box-shadow:var(--shadow-sm)}
-/* Component detail drawer */
-.drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:150;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .15s ease}
-@media(min-width:600px){.drawer-overlay{align-items:center;padding:1rem}}
-.drawer{background:var(--white);border-radius:var(--radius-xl) var(--radius-xl) 0 0;width:100%;max-width:560px;max-height:88vh;overflow-y:auto;animation:slideUp .2s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column}
-@media(min-width:600px){.drawer{border-radius:var(--radius-xl)}}
-.drawer-header{padding:20px 20px 0;position:sticky;top:0;background:var(--white);z-index:1;border-radius:var(--radius-xl) var(--radius-xl) 0 0}
-@media(min-width:600px){.drawer-header{border-radius:var(--radius-xl) var(--radius-xl) 0 0}}
-.drawer-body{padding:0 20px 32px;flex:1}
-.drawer-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px}
-.drawer-title{font-size:20px;font-weight:600;color:var(--charcoal);letter-spacing:-.4px}
-.drawer-close{background:var(--grey-bg);border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;color:var(--grey-text);flex-shrink:0;transition:var(--transition)}
-.drawer-close:hover{background:var(--grey-mid);color:var(--charcoal)}
-.service-log-item{border-left:3px solid var(--yellow);padding:10px 14px;margin-bottom:10px;background:var(--grey-bg);border-radius:0 var(--radius-sm) var(--radius-sm) 0}
-.service-log-date{font-size:11px;font-family:var(--font-mono);color:var(--grey-text);margin-bottom:4px}
-.service-log-note{font-size:13px;color:var(--charcoal);line-height:1.5}
-.service-log-empty{font-size:13px;color:var(--grey-text);padding:16px 0;text-align:center}
-.empty-state{text-align:center;padding:40px 20px;color:var(--grey-text)}
-.empty-state-icon{font-size:32px;margin-bottom:10px}
-.empty-state p{font-size:14px;line-height:1.6}
-.no-bike-state{text-align:center;padding:60px 20px}
-.no-bike-state h2{font-size:22px;font-weight:600;margin-bottom:8px}
-.no-bike-state p{color:var(--grey-text);font-size:14px;margin-bottom:24px}
-.divider{height:1px;background:var(--grey-mid);margin:20px 0}
-@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
-@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+html,body,#root{height:100%;background:var(--bg)}
+body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+/* ── Shell ── */
+.shell{display:flex;flex-direction:column;height:100%;max-width:480px;margin:0 auto;position:relative}
+@media(min-width:480px){.shell{border-left:1px solid var(--border);border-right:1px solid var(--border)}}
+
+/* ── Top Bar ── */
+.topbar{display:flex;align-items:center;padding:0 18px;height:56px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;gap:12px;position:sticky;top:0;z-index:50}
+.topbar-wordmark{font-size:15px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
+.topbar-wordmark span{color:var(--accent)}
+.topbar-bike-name{font-size:13px;color:var(--text2);font-weight:500;flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar-right{display:flex;align-items:center;gap:8px}
+.pill-btn{background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-family:var(--font);font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;transition:var(--transition);white-space:nowrap;letter-spacing:.3px}
+.pill-btn:hover{background:var(--surface3);color:var(--text)}
+.pill-btn.accent{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+.alert-dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── Bottom Nav ── */
+.bottom-nav{display:flex;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;height:var(--nav-h);position:sticky;bottom:0;z-index:50;padding-bottom:env(safe-area-inset-bottom)}
+.nav-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:none;border:none;cursor:pointer;transition:var(--transition);padding:10px 4px;color:var(--text3)}
+.nav-tab.active{color:var(--accent)}
+.nav-tab-icon{width:22px;height:22px;display:flex;align-items:center;justify-content:center}
+.nav-tab svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.nav-tab-label{font-size:10px;font-weight:600;letter-spacing:.4px;text-transform:uppercase}
+
+/* ── Scrollable content area ── */
+.page{flex:1;overflow-y:auto;padding:16px 16px 8px;-webkit-overflow-scrolling:touch}
+.page::-webkit-scrollbar{width:0}
+
+/* ── Cards ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px}
+.card-sm{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:8px}
+.card.warn{border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.04)}
+.card.danger{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.04)}
+
+/* ── Stat grid ── */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
+.stat-cell{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 10px;text-align:center}
+.stat-value{font-size:20px;font-weight:700;color:var(--text);letter-spacing:-.5px;line-height:1}
+.stat-label{font-size:10px;font-weight:500;color:var(--text3);letter-spacing:.5px;text-transform:uppercase;margin-top:5px}
+
+/* ── CTA button ── */
+.cta-btn{display:flex;align-items:center;justify-content:space-between;background:var(--accent);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:16px;border:none;width:100%;cursor:pointer;transition:var(--transition)}
+.cta-btn:active{transform:scale(.98)}
+.cta-btn-label{font-family:var(--font);font-size:16px;font-weight:700;color:#0F0F0F;letter-spacing:-.2px}
+.cta-btn-sub{font-family:var(--font);font-size:12px;color:rgba(15,15,15,.55);margin-top:2px;font-weight:400}
+.cta-btn-tag{background:#0F0F0F;color:var(--accent);font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;letter-spacing:.3px;white-space:nowrap}
+
+/* ── Alert banners ── */
+.alert-bar{display:flex;gap:12px;padding:12px 14px;border-radius:var(--radius);margin-bottom:8px;font-size:13px;line-height:1.5;animation:fadeDown .2s ease}
+.alert-bar.danger{background:var(--red-bg);border:1px solid rgba(239,68,68,.3)}
+.alert-bar.warn{background:var(--yellow-bg);border:1px solid rgba(245,158,11,.3)}
+.alert-bar-badge{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0;align-self:flex-start;margin-top:1px}
+.alert-bar.danger .alert-bar-badge{background:var(--red-bg);color:var(--red-text);border:1px solid rgba(239,68,68,.3)}
+.alert-bar.warn .alert-bar-badge{background:var(--yellow-bg);color:var(--yellow-text);border:1px solid rgba(245,158,11,.3)}
+.alert-bar-text{color:var(--text2);font-size:13px}
+.alert-bar-text strong{color:var(--text);font-weight:600;display:block;margin-bottom:2px}
+
+/* ── Section headers ── */
+.section-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;margin-top:4px}
+.section-hd-title{font-size:12px;font-weight:600;color:var(--text3);letter-spacing:.6px;text-transform:uppercase}
+.text-btn{background:none;border:none;font-family:var(--font);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;padding:4px 0;letter-spacing:.2px}
+.text-btn.danger{color:var(--red-text)}
+.text-btn:hover{opacity:.8}
+
+/* ── Progress bar ── */
+.prog-wrap{margin:10px 0 6px}
+.prog-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:6px;font-variant-numeric:tabular-nums}
+.prog-track{height:6px;background:var(--surface3);border-radius:999px;overflow:visible;position:relative}
+.prog-fill{height:100%;border-radius:999px;transition:width .5s cubic-bezier(.4,0,.2,1);min-width:6px;position:relative}
+.prog-fill.ok{background:var(--green)}
+.prog-fill.warning{background:var(--yellow)}
+.prog-fill.overdue{background:var(--red)}
+.prog-marker{position:absolute;top:-3px;width:2px;height:12px;background:rgba(255,255,255,.2);border-radius:1px;z-index:1}
+
+/* ── Status badge ── */
+.badge{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:999px;flex-shrink:0}
+.badge.ok{background:var(--green-bg);color:var(--green-text)}
+.badge.warning{background:var(--yellow-bg);color:var(--yellow-text)}
+.badge.overdue{background:var(--red-bg);color:var(--red-text)}
+
+/* ── Component card ── */
+.comp-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:10px;cursor:pointer;transition:var(--transition)}
+.comp-card:active{transform:scale(.99)}
+.comp-card.warning{border-color:rgba(245,158,11,.35)}
+.comp-card.overdue{border-color:rgba(239,68,68,.35)}
+.comp-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:4px}
+.comp-name{font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.2px}
+.comp-meta{font-size:12px;color:var(--text3);margin-top:2px}
+.comp-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:8px}
+.comp-last-service{font-size:11px;color:var(--text3)}
+.comp-actions{display:flex;gap:6px}
+
+/* ── Ride item ── */
+.ride-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px}
+.ride-accent-bar{width:3px;border-radius:999px;background:var(--accent);flex-shrink:0;align-self:stretch;min-height:36px}
+.ride-body{flex:1;min-width:0}
+.ride-primary{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ride-dist{font-size:15px;font-weight:700;color:var(--text)}
+.ride-dur{font-size:13px;color:var(--text2);font-weight:500}
+.ride-notes{font-size:12px;color:var(--text3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ride-date{font-size:11px;color:var(--text3);margin-top:4px;font-variant-numeric:tabular-nums}
+.ride-actions{display:flex;flex-direction:column;gap:4px;flex-shrink:0;align-items:flex-end}
+
+/* ── Inline text buttons for actions ── */
+.action-row{display:flex;gap:12px;align-items:center}
+.act{background:none;border:none;font-family:var(--font);font-size:12px;font-weight:600;color:var(--text3);cursor:pointer;padding:0;transition:var(--transition);letter-spacing:.1px}
+.act:hover{color:var(--text)}
+.act.primary{color:var(--accent)}
+.act.danger{color:var(--red-text)}
+
+/* ── Stroked button ── */
+.stroke-btn{background:transparent;border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;font-family:var(--font);font-size:13px;font-weight:600;color:var(--text2);cursor:pointer;transition:var(--transition);white-space:nowrap}
+.stroke-btn:hover{border-color:var(--text2);color:var(--text)}
+.stroke-btn.primary{border-color:var(--accent);color:var(--accent)}
+.stroke-btn.danger{border-color:rgba(239,68,68,.5);color:var(--red-text)}
+
+/* ── Modals / sheets ── */
+.sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .15s ease;backdrop-filter:blur(4px)}
+@media(min-width:480px){.sheet-overlay{align-items:center}}
+.sheet{background:var(--surface);border-radius:var(--radius-xl) var(--radius-xl) 0 0;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;animation:slideUp .2s cubic-bezier(.4,0,.2,1);padding:0}
+@media(min-width:480px){.sheet{border-radius:var(--radius-xl)}}
+.sheet-handle{width:36px;height:4px;background:var(--border);border-radius:999px;margin:14px auto 0}
+@media(min-width:480px){.sheet-handle{display:none}}
+.sheet-header{padding:20px 20px 0;position:sticky;top:0;background:var(--surface);z-index:1}
+.sheet-title{font-size:19px;font-weight:700;color:var(--text);letter-spacing:-.4px;margin-bottom:4px}
+.sheet-subtitle{font-size:13px;color:var(--text3);margin-bottom:0}
+.sheet-body{padding:20px}
+.sheet-footer{display:flex;gap:10px;padding:0 20px 28px}
+
+/* ── Form elements ── */
+.field{margin-bottom:18px}
+.label{display:block;font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px}
+.input{width:100%;padding:11px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:15px;color:var(--text);transition:var(--transition);-webkit-appearance:none;outline:none}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.input::placeholder{color:var(--text3)}
+.textarea{width:100%;padding:11px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:14px;color:var(--text);resize:vertical;min-height:80px;line-height:1.6;transition:var(--transition);outline:none}
+.textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
+.textarea::placeholder{color:var(--text3)}
+.input-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hint{font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5}
+.seg{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:3px;gap:3px}
+.seg-opt{flex:1;padding:8px;border:none;border-radius:7px;background:transparent;font-family:var(--font);font-size:13px;font-weight:500;color:var(--text3);cursor:pointer;transition:var(--transition);text-align:center}
+.seg-opt.active{background:var(--surface3);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+
+/* ── Primary/secondary buttons ── */
+.btn{border:none;border-radius:var(--radius);padding:13px 20px;font-family:var(--font);font-size:15px;font-weight:600;cursor:pointer;transition:var(--transition);white-space:nowrap}
+.btn.primary{background:var(--accent);color:#0F0F0F;flex:1}
+.btn.primary:hover{background:#FFE033}
+.btn.primary:disabled{opacity:.35;cursor:not-allowed}
+.btn.ghost{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+.btn.ghost:hover{background:var(--surface3);color:var(--text)}
+.btn.destructive{background:var(--red-bg);color:var(--red-text);border:1px solid rgba(239,68,68,.3)}
+
+/* ── Colour swatches ── */
+.swatches{display:flex;gap:8px;flex-wrap:wrap}
+.swatch{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:var(--transition)}
+.swatch.active{border-color:#fff;transform:scale(1.18)}
+
+/* ── Detail drawer ── */
+.drawer-stat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px}
+.drawer-stat{background:var(--surface2);border-radius:var(--radius);padding:12px 8px;text-align:center}
+.drawer-stat-val{font-size:14px;font-weight:700;color:var(--text);letter-spacing:-.3px}
+.drawer-stat-lbl{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-top:4px}
+
+/* ── Service log ── */
+.log-item{border-left:2px solid var(--accent);padding:10px 14px;margin-bottom:8px;background:var(--surface2);border-radius:0 var(--radius) var(--radius) 0}
+.log-date{font-size:11px;color:var(--text3);margin-bottom:4px;font-variant-numeric:tabular-nums}
+.log-note{font-size:13px;color:var(--text);line-height:1.5}
+.log-empty{font-size:13px;color:var(--text3);text-align:center;padding:24px 0;font-style:italic}
+
+/* ── Bike selector (settings) ── */
+.bike-row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--border)}
+.bike-row:last-child{border-bottom:none}
+.bike-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.bike-row-name{flex:1;font-size:15px;font-weight:500;color:var(--text)}
+.bike-row-sub{font-size:12px;color:var(--text3);margin-top:2px}
+
+/* ── Settings rows ── */
+.settings-row{display:flex;align-items:center;justify-content:space-between;padding:16px 0;border-bottom:1px solid var(--border)}
+.settings-row:last-child{border-bottom:none}
+.settings-row-label{font-size:14px;font-weight:500;color:var(--text)}
+.settings-row-sub{font-size:12px;color:var(--text3);margin-top:2px}
+.toggle{width:46px;height:26px;background:var(--surface3);border-radius:999px;position:relative;cursor:pointer;border:none;transition:var(--transition);flex-shrink:0}
+.toggle.on{background:var(--accent)}
+.toggle-thumb{width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:var(--transition);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.toggle.on .toggle-thumb{left:23px}
+
+/* ── Empty states ── */
+.empty{text-align:center;padding:48px 20px}
+.empty-icon{width:56px;height:56px;background:var(--surface2);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.empty-title{font-size:17px;font-weight:600;color:var(--text);margin-bottom:6px}
+.empty-sub{font-size:14px;color:var(--text3);line-height:1.6;margin-bottom:24px}
+
+/* ── Divider ── */
+.divider{height:1px;background:var(--border);margin:16px 0}
+
+/* ── No bike state ── */
+.no-bike{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:40px 24px;text-align:center}
+.no-bike h2{font-size:22px;font-weight:700;margin-bottom:8px}
+.no-bike p{font-size:14px;color:var(--text3);margin-bottom:28px;line-height:1.6}
+
+/* ── Animations ── */
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@media(min-width:600px){.topbar{padding:0 1.5rem}.main-content{padding:2rem 1.5rem 4rem}}
-@media(max-width:360px){.hero-stats{grid-template-columns:1fr 1fr}.stat-card-value{font-size:18px}}
-::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--grey-mid);border-radius:3px}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SHARED UI PRIMITIVES
+// SVG ICONS (text-only UI — these are minimal line icons used only in bottom nav)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ProgressBar({ pct, status, warnPct }) {
-  return (
-    <div className="progress-wrap">
-      <div className="progress-labels">
-        <span>0%</span>
-        <span style={{ color: pct >= 100 ? "#F44336" : "#1E1E1E", fontWeight: pct >= 80 ? 600 : 400 }}>
-          {Math.min(Math.round(pct), 100)}%
-        </span>
-      </div>
-      <div className="progress-track-wrapper">
-        <div className="progress-track">
-          <div className={`progress-fill ${status}`} style={{ width: `${Math.min(pct, 100)}%` }} />
-        </div>
-        {warnPct > 0 && warnPct < 100 && (
-          <div className="progress-warn-marker" style={{ left: `calc(${warnPct}% - 1px)` }} title={`Warning at ${Math.round(warnPct)}%`} />
-        )}
-      </div>
-    </div>
-  );
-}
+const Icon = {
+  Dashboard: () => <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
+  Components: () => <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>,
+  Rides: () => <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>,
+  Settings: () => <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>,
+};
 
-// HH:MM input with auto-colon formatting
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED: DurationInput (HH:MM)
+// ─────────────────────────────────────────────────────────────────────────────
+
 function DurationInput({ value, onChange, placeholder = "00:00" }) {
-  function handleChange(e) {
+  function handle(e) {
     let v = e.target.value.replace(/[^\d:]/g, "");
-    // Auto-insert colon after 2 digits if user hasn't typed one
-    if (v.length === 2 && !v.includes(":")) v = v + ":";
-    // Clamp minutes portion
-    if (v.includes(":")) {
-      const [h, m] = v.split(":");
-      if (m !== undefined && m.length > 2) return;
-    }
+    if (v.length === 2 && !v.includes(":") && value.length < 3) v += ":";
+    if (v.includes(":")) { const [h, m] = v.split(":"); if (m !== undefined && m.length > 2) return; }
     onChange(v);
   }
+  return <input className="input" type="text" inputMode="numeric" placeholder={placeholder} value={value} onChange={handle} maxLength={5} />;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED: ProgressBar
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ProgressBar({ pct, status, warnPct, leftLabel, rightLabel }) {
   return (
-    <input
-      className="form-input"
-      type="text"
-      inputMode="numeric"
-      placeholder={placeholder}
-      value={value}
-      onChange={handleChange}
-      maxLength={5}
-    />
+    <div className="prog-wrap">
+      <div className="prog-labels">
+        <span>{leftLabel}</span>
+        <span style={{ color: status === "overdue" ? "var(--red-text)" : status === "warning" ? "var(--yellow-text)" : "var(--text3)" }}>{rightLabel}</span>
+      </div>
+      <div className="prog-track">
+        {warnPct > 0 && warnPct < 100 && <div className="prog-marker" style={{ left: `calc(${warnPct}% - 1px)` }} />}
+        <div className={`prog-fill ${status}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+      </div>
+    </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT DETAIL DRAWER
-// Shows full stats + service log with notes. Opened by clicking a component card.
+// SHEET WRAPPER
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ComponentDetailDrawer({ component, bikeId, onClose, onEdit, onService }) {
-  const { state } = useApp();
-  const du = state.distanceUnit;
-  const { pct, status, remaining } = getComponentStatus(component);
-  const warnPct = Math.max(0, ((component.intervalValue - component.warnBuffer) / component.intervalValue) * 100);
-
-  const remainingLabel = component.intervalType === "distance"
-    ? units.formatDistance(remaining, du)
-    : units.formatDuration(remaining);
-
+function Sheet({ title, subtitle, onClose, children, footer }) {
   return (
-    <div className="drawer-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="drawer">
-        <div className="drawer-header">
-          <div className="modal-handle" />
-          <div className="drawer-title-row">
+    <div className="sheet-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="sheet">
+        <div className="sheet-handle" />
+        <div className="sheet-header">
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", paddingTop: 6 }}>
             <div>
-              <div className="drawer-title">{component.name}</div>
-              <div style={{ fontSize: 12, color: "#757575", marginTop: 3 }}>
-                {component.intervalType === "distance" ? "Distance" : "Time"} interval ·{" "}
-                {units.formatInterval(component, du)}
-              </div>
+              <div className="sheet-title">{title}</div>
+              {subtitle && <div className="sheet-subtitle">{subtitle}</div>}
             </div>
-            <button className="drawer-close" onClick={onClose}>×</button>
+            <button className="act" onClick={onClose} style={{ fontSize: 13, marginTop: 2 }}>Close</button>
           </div>
+          <div className="divider" style={{ marginBottom: 0 }} />
         </div>
-
-        <div className="drawer-body">
-          {/* Progress */}
-          <ProgressBar pct={pct} status={status} warnPct={warnPct} />
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 20 }}>
-            {[
-              { label: "Used", value: units.formatAccumulated(component, du) },
-              { label: "Remaining", value: remainingLabel },
-              { label: "Interval", value: units.formatInterval(component, du) },
-            ].map(s => (
-              <div key={s.label} style={{ background: "var(--grey-bg)", borderRadius: "var(--radius-sm)", padding: "12px 10px", textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: "var(--grey-text)", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 4 }}>{s.label}</div>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Action row */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-            <button className="service-btn" style={{ flex: 1, textAlign: "center", padding: "10px" }} onClick={onService}>✓ Mark as Serviced</button>
-            <button className="icon-btn" onClick={onEdit} title="Edit component" style={{ padding: "10px 14px", fontSize: 13 }}>✏️ Edit</button>
-          </div>
-
-          <div className="divider" />
-
-          {/* Service log */}
-          <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 14 }}>Service History</div>
-          {component.serviceLog.length === 0 ? (
-            <div className="service-log-empty">No service records yet.</div>
-          ) : (
-            component.serviceLog.map(entry => (
-              <div key={entry.id} className="service-log-item">
-                <div className="service-log-date">{new Date(entry.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</div>
-                <div className="service-log-note">{entry.note || <span style={{ color: "#BDBDBD", fontStyle: "italic" }}>No notes recorded</span>}</div>
-              </div>
-            ))
-          )}
-        </div>
+        <div className="sheet-body">{children}</div>
+        {footer && <div className="sheet-footer">{footer}</div>}
       </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MARK SERVICED MODAL (captures note)
+// RIDE FORM SHEET
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ServiceModal({ component, bikeId, onClose }) {
-  const { dispatch } = useApp();
-  const [note, setNote] = useState("");
-
-  function handleSubmit() {
-    dispatch({ type: "SERVICE_COMPONENT", bikeId, componentId: component.id, note });
-    onClose();
-  }
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-handle" />
-        <div className="modal-title">Mark as Serviced</div>
-        <div className="modal-subtitle">{component.name}</div>
-        <div className="form-field">
-          <label className="form-label">Service Notes (optional)</label>
-          <textarea
-            className="form-textarea"
-            placeholder="e.g. Replaced KMC X11 chain, 116 links. Checked wear — 0.5% stretch."
-            value={note}
-            onChange={e => setNote(e.target.value)}
-            autoFocus
-          />
-          <p className="form-hint">Notes are saved to the service history for this component.</p>
-        </div>
-        <div className="modal-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSubmit}>Confirm Service</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT CARD
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ComponentCard({ component, bikeId }) {
-  const { state } = useApp();
-  const { pct, status } = getComponentStatus(component);
-  const du = state.distanceUnit;
-  const [showDetail, setShowDetail] = useState(false);
-  const [showService, setShowService] = useState(false);
-  const [showEdit, setShowEdit] = useState(false);
-
-  // warnPct for the marker line
-  const warnPct = Math.max(0, ((component.intervalValue - component.warnBuffer) / component.intervalValue) * 100);
-
-  const lastEntry = component.serviceLog[0];
-  const lastServicedText = lastEntry
-    ? `Serviced ${new Date(lastEntry.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
-    : "Never serviced";
-
-  return (
-    <>
-      <div className={`component-card ${status}`} onClick={() => setShowDetail(true)}>
-        <div className="component-card-header">
-          <div>
-            <div className="component-name">{component.name}</div>
-            <div style={{ marginTop: 4 }}>
-              <span className="component-meta-item">
-                <strong>{units.formatAccumulated(component, du)}</strong>
-                {" / "}
-                {units.formatInterval(component, du)}
-              </span>
-            </div>
-          </div>
-          <span className={`component-badge badge-${status}`}>
-            {status === "ok" ? "OK" : status === "warning" ? "Warning" : "Overdue"}
-          </span>
-        </div>
-
-        <ProgressBar pct={pct} status={status} warnPct={warnPct} />
-
-        <div className="component-card-footer" onClick={e => e.stopPropagation()}>
-          <span className="last-serviced-text">{lastServicedText}</span>
-          <div className="card-action-row">
-            <button className="icon-btn" title="Edit" onClick={e => { e.stopPropagation(); setShowEdit(true); }}>✏️</button>
-            <button className="service-btn" onClick={e => { e.stopPropagation(); setShowService(true); }}>✓ Service</button>
-          </div>
-        </div>
-      </div>
-
-      {showDetail && !showService && !showEdit && (
-        <ComponentDetailDrawer
-          component={component}
-          bikeId={bikeId}
-          onClose={() => setShowDetail(false)}
-          onEdit={() => { setShowDetail(false); setShowEdit(true); }}
-          onService={() => { setShowDetail(false); setShowService(true); }}
-        />
-      )}
-      {showService && (
-        <ServiceModal component={component} bikeId={bikeId} onClose={() => setShowService(false)} />
-      )}
-      {showEdit && (
-        <ComponentFormModal
-          bikeId={bikeId}
-          initial={component}
-          onClose={() => setShowEdit(false)}
-        />
-      )}
-    </>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT FORM MODAL (add + edit)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ComponentFormModal({ bikeId, initial, onClose }) {
-  const { dispatch } = useApp();
-  const isEdit = !!initial;
-
-  const [name, setName] = useState(initial?.name ?? "");
-  const [intervalType, setIntervalType] = useState(initial?.intervalType ?? "distance");
-  const [intervalValue, setIntervalValue] = useState(
-    initial ? (initial.intervalType === "time" ? units.minutesToHHMM(initial.intervalValue) : String(initial.intervalValue)) : ""
-  );
-  const [warnBuffer, setWarnBuffer] = useState(
-    initial ? (initial.intervalType === "time" ? units.minutesToHHMM(initial.warnBuffer) : String(initial.warnBuffer)) : ""
-  );
-
-  // When interval type tab changes, reset the value fields
-  function handleTypeChange(t) {
-    setIntervalType(t);
-    setIntervalValue("");
-    setWarnBuffer("");
-  }
-
-  function handleSubmit() {
-    if (!name.trim() || !intervalValue) return;
-    const iv = intervalType === "time" ? units.parseHHMM(intervalValue) : Number(intervalValue);
-    const wb = intervalType === "time" ? units.parseHHMM(warnBuffer) : Number(warnBuffer || 0);
-    if (isEdit) {
-      dispatch({ type: "EDIT_COMPONENT", bikeId, componentId: initial.id, fields: { name: name.trim(), intervalType, intervalValue: iv, warnBuffer: wb } });
-    } else {
-      dispatch({ type: "ADD_COMPONENT", bikeId, component: { name: name.trim(), intervalType, intervalValue: iv, warnBuffer: wb } });
-    }
-    onClose();
-  }
-
-  function handleDelete() {
-    if (window.confirm(`Delete "${initial.name}"? This cannot be undone.`)) {
-      dispatch({ type: "DELETE_COMPONENT", bikeId, componentId: initial.id });
-      onClose();
-    }
-  }
-
-  const isTimeBased = intervalType === "time";
-  const ivPlaceholder = isTimeBased ? "e.g. 50:00 (50 hours)" : "e.g. 500 (km)";
-  const wbPlaceholder = isTimeBased ? "e.g. 05:00 (5 hours)" : "e.g. 100 (km)";
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-handle" />
-        <div className="modal-title">{isEdit ? "Edit Component" : "Add Component"}</div>
-
-        <div className="form-field">
-          <label className="form-label">Component Name</label>
-          <input className="form-input" type="text" placeholder="e.g. Chain, Fork Service, Tyres" value={name} onChange={e => setName(e.target.value)} autoFocus />
-        </div>
-
-        <div className="form-field">
-          <label className="form-label">Interval Type</label>
-          <div className="interval-type-tabs">
-            <button className={`interval-tab ${intervalType === "distance" ? "active" : ""}`} onClick={() => handleTypeChange("distance")}>📍 Distance (km)</button>
-            <button className={`interval-tab ${intervalType === "time" ? "active" : ""}`} onClick={() => handleTypeChange("time")}>⏱ Riding Time</button>
-          </div>
-        </div>
-
-        <div className="form-field">
-          <label className="form-label">{isTimeBased ? "Service Interval (HH:MM)" : "Service Interval (km)"}</label>
-          {isTimeBased
-            ? <DurationInput value={intervalValue} onChange={setIntervalValue} placeholder={ivPlaceholder} />
-            : <input className="form-input" type="number" inputMode="numeric" placeholder={ivPlaceholder} value={intervalValue} onChange={e => setIntervalValue(e.target.value)} />}
-          <p className="form-hint">{isTimeBased ? "Total riding time before service is due. e.g. 50:00 = 50 hours." : "Distance ridden before service is due."}</p>
-        </div>
-
-        <div className="form-field">
-          <label className="form-label">{isTimeBased ? "Warn when this much time remains (HH:MM)" : "Warn when this many km remain"}</label>
-          {isTimeBased
-            ? <DurationInput value={warnBuffer} onChange={setWarnBuffer} placeholder={wbPlaceholder} />
-            : <input className="form-input" type="number" inputMode="numeric" placeholder={wbPlaceholder} value={warnBuffer} onChange={e => setWarnBuffer(e.target.value)} />}
-          <p className="form-hint">{isTimeBased ? "e.g. 05:00 = warn when 5 hours of the interval remain." : "e.g. 100 = warn when 100 km of the interval remain."}</p>
-        </div>
-
-        <div className="modal-footer" style={{ flexWrap: "wrap" }}>
-          {isEdit && (
-            <button className="btn-secondary" style={{ color: "#F44336", borderColor: "#FFCDD2" }} onClick={handleDelete}>Delete</button>
-          )}
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSubmit} disabled={!name.trim() || !intervalValue}>
-            {isEdit ? "Save Changes" : "Add Component"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RIDE FORM MODAL (add + edit)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function RideFormModal({ bikeId, initial, onClose }) {
+function RideSheet({ bikeId, initial, onClose }) {
   const { dispatch, state } = useApp();
   const du = state.distanceUnit;
   const isEdit = !!initial;
-
-  // Convert stored km to display unit for editing
-  const initDist = isEdit
-    ? (du === "mi" ? (initial.distanceKm * 0.621371).toFixed(2) : initial.distanceKm.toFixed(2))
-    : "";
-  const initDur = isEdit ? units.minutesToHHMM(initial.durationMinutes) : "";
-  const initNotes = isEdit ? (initial.notes || "") : "";
-
+  const initDist = isEdit ? (du === "mi" ? (initial.distanceKm * 0.621371).toFixed(2) : initial.distanceKm.toFixed(2)) : "";
   const [dist, setDist] = useState(initDist);
-  const [dur, setDur] = useState(initDur);
-  const [notes, setNotes] = useState(initNotes);
+  const [dur, setDur] = useState(isEdit ? units.minutesToHHMM(initial.durationMinutes) : "");
+  const [notes, setNotes] = useState(isEdit ? initial.notes : "");
 
-  function handleSubmit() {
-    const rawDist = parseFloat(dist);
-    if (!rawDist || rawDist <= 0) return;
-    const distKm = du === "mi" ? units.miToKm(rawDist) : rawDist;
-    const durationMinutes = units.parseHHMM(dur);
-
-    if (isEdit) {
-      dispatch({ type: "EDIT_RIDE", bikeId, rideId: initial.id, rideData: { distanceKm: distKm, durationMinutes, notes } });
-    } else {
-      dispatch({ type: "ADD_RIDE", bikeId, rideData: { distanceKm: distKm, durationMinutes, notes } });
-    }
+  function save() {
+    const dk = du === "mi" ? units.miToKm(+dist) : +dist;
+    const dm = units.parseHHMM(dur);
+    if (isEdit) dispatch({ type: "EDIT_RIDE", bikeId, rideId: initial.id, data: { distanceKm: dk, durationMinutes: dm, notes } });
+    else dispatch({ type: "ADD_RIDE", bikeId, data: { distanceKm: dk, durationMinutes: dm, notes } });
     onClose();
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-handle" />
-        <div className="modal-title">{isEdit ? "Edit Ride" : "Log a Ride"}</div>
-
-        <div className="form-field">
-          <label className="form-label">Distance ({du})</label>
-          <input className="form-input" type="number" inputMode="decimal" placeholder="e.g. 45" value={dist} onChange={e => setDist(e.target.value)} autoFocus />
-        </div>
-
-        <div className="form-field">
-          <label className="form-label">Duration (HH:MM)</label>
-          <DurationInput value={dur} onChange={setDur} placeholder="01:30" />
-          <p className="form-hint">Hours and minutes — e.g. 01:30 for 1 hour 30 minutes.</p>
-        </div>
-
-        <div className="form-field">
-          <label className="form-label">Notes (optional)</label>
-          <textarea
-            className="form-textarea"
-            placeholder="Route, conditions, how you felt…"
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-          />
-        </div>
-
-        <div className="modal-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSubmit} disabled={!parseFloat(dist)}>
-            {isEdit ? "Save Changes" : "Save Ride"}
-          </button>
-        </div>
+    <Sheet title={isEdit ? "Edit Ride" : "Log a Ride"} onClose={onClose}
+      footer={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={!+dist}>Save Ride</button></>}>
+      <div className="field">
+        <label className="label">Distance ({du})</label>
+        <input className="input" type="number" inputMode="decimal" placeholder="e.g. 45" value={dist} onChange={e => setDist(e.target.value)} autoFocus />
       </div>
-    </div>
+      <div className="field">
+        <label className="label">Duration (HH:MM)</label>
+        <DurationInput value={dur} onChange={setDur} placeholder="01:30" />
+        <div className="hint">Hours and minutes — e.g. 01:30 for 1 hour 30 minutes</div>
+      </div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label className="label">Notes (optional)</label>
+        <textarea className="textarea" placeholder="Route, conditions, how you felt…" value={notes} onChange={e => setNotes(e.target.value)} />
+      </div>
+    </Sheet>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADD BIKE MODAL
+// COMPONENT FORM SHEET
 // ─────────────────────────────────────────────────────────────────────────────
 
-function AddBikeModal({ onClose }) {
+function ComponentSheet({ bikeId, initial, onClose }) {
   const { dispatch } = useApp();
-  const [name, setName] = useState("");
-  const [color, setColor] = useState(BIKE_COLOURS[0]);
+  const isEdit = !!initial;
+  const [name, setName] = useState(initial?.name ?? "");
+  const [itype, setItype] = useState(initial?.intervalType ?? "distance");
+  const [ival, setIval] = useState(() => {
+    if (!initial) return "";
+    return initial.intervalType === "time" ? units.minutesToHHMM(initial.intervalValue) : String(initial.intervalValue);
+  });
+  const [wbuf, setWbuf] = useState(() => {
+    if (!initial) return "";
+    return initial.intervalType === "time" ? units.minutesToHHMM(initial.warnBuffer) : String(initial.warnBuffer);
+  });
 
-  function handleSubmit() {
-    if (!name.trim()) return;
-    dispatch({ type: "ADD_BIKE", name: name.trim(), color });
+  function changeType(t) { setItype(t); setIval(""); setWbuf(""); }
+
+  function save() {
+    const iv = itype === "time" ? units.parseHHMM(ival) : +ival;
+    const wb = itype === "time" ? units.parseHHMM(wbuf) : +wbuf || 0;
+    if (isEdit) dispatch({ type: "EDIT_COMPONENT", bikeId, compId: initial.id, data: { name, intervalType: itype, intervalValue: iv, warnBuffer: wb } });
+    else dispatch({ type: "ADD_COMPONENT", bikeId, data: { name, intervalType: itype, intervalValue: iv, warnBuffer: wb } });
     onClose();
   }
 
+  function del() {
+    if (window.confirm(`Permanently delete "${initial.name}"?`)) { dispatch({ type: "DELETE_COMPONENT", bikeId, compId: initial.id }); onClose(); }
+  }
+
+  const isTime = itype === "time";
+
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-handle" />
-        <div className="modal-title">Add a Bike</div>
-        <div className="form-field">
-          <label className="form-label">Bike Name</label>
-          <input className="form-input" type="text" placeholder="e.g. Canyon Aeroad CF SL" value={name} onChange={e => setName(e.target.value)} autoFocus onKeyDown={e => e.key === "Enter" && handleSubmit()} />
+    <Sheet title={isEdit ? "Edit Component" : "Add Component"} onClose={onClose}
+      footer={
+        <div style={{ display: "flex", gap: 8, width: "100%", flexWrap: "wrap" }}>
+          {isEdit && <button className="btn destructive" onClick={del}>Delete</button>}
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={!name.trim() || !ival}>Save</button>
         </div>
-        <div className="form-field">
-          <label className="form-label">Accent Colour</label>
-          <div className="colour-picker-row">
-            {BIKE_COLOURS.map(c => (
-              <div key={c} className={`colour-swatch ${color === c ? "selected" : ""}`} style={{ background: c }} onClick={() => setColor(c)} />
-            ))}
-          </div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSubmit} disabled={!name.trim()}>Add Bike</button>
+      }>
+      <div className="field">
+        <label className="label">Component Name</label>
+        <input className="input" type="text" placeholder="e.g. Chain, Fork Service, Tyres" value={name} onChange={e => setName(e.target.value)} autoFocus />
+      </div>
+      <div className="field">
+        <label className="label">Interval Type</label>
+        <div className="seg">
+          <button className={`seg-opt ${itype === "distance" ? "active" : ""}`} onClick={() => changeType("distance")}>Distance</button>
+          <button className={`seg-opt ${itype === "time" ? "active" : ""}`} onClick={() => changeType("time")}>Riding Time</button>
         </div>
       </div>
-    </div>
+      <div className="field">
+        <label className="label">{isTime ? "Service Every (HH:MM riding time)" : "Service Every (km)"}</label>
+        {isTime
+          ? <DurationInput value={ival} onChange={setIval} placeholder="50:00" />
+          : <input className="input" type="number" inputMode="numeric" placeholder="e.g. 500" value={ival} onChange={e => setIval(e.target.value)} />}
+        <div className="hint">{isTime ? "e.g. 50:00 = service every 50 hours of riding" : "Distance ridden before this component needs service"}</div>
+      </div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label className="label">{isTime ? "Warn when this much time remains (HH:MM)" : "Warn when this many km remain"}</label>
+        {isTime
+          ? <DurationInput value={wbuf} onChange={setWbuf} placeholder="05:00" />
+          : <input className="input" type="number" inputMode="numeric" placeholder="e.g. 100" value={wbuf} onChange={e => setWbuf(e.target.value)} />}
+        <div className="hint">{isTime ? "e.g. 05:00 = show yellow warning when 5 hours of the interval remain" : "e.g. 100 = show yellow warning when 100 km of the interval remain"}</div>
+      </div>
+    </Sheet>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SERVICE SHEET (captures note)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ServiceSheet({ bikeId, component, onClose }) {
+  const { dispatch } = useApp();
+  const [note, setNote] = useState("");
+  function save() { dispatch({ type: "SERVICE_COMPONENT", bikeId, compId: component.id, note }); onClose(); }
+  return (
+    <Sheet title="Mark as Serviced" subtitle={component.name} onClose={onClose}
+      footer={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save}>Confirm Service</button></>}>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label className="label">Service Notes (optional)</label>
+        <textarea className="textarea" placeholder="e.g. Replaced KMC X11 chain. Checked wear — 0.5% stretch." value={note} onChange={e => setNote(e.target.value)} autoFocus />
+        <div className="hint">Notes are saved to this component's service history.</div>
+      </div>
+    </Sheet>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT DETAIL SHEET
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ComponentDetailSheet({ bikeId, component, onClose }) {
+  const { state } = useApp();
+  const du = state.distanceUnit;
+  const { pct, status, remaining } = getStatus(component);
+  const warnPct = ((component.intervalValue - component.warnBuffer) / component.intervalValue) * 100;
+  const [showEdit, setShowEdit] = useState(false);
+  const [showService, setShowService] = useState(false);
+
+  if (showEdit) return <ComponentSheet bikeId={bikeId} initial={component} onClose={() => { setShowEdit(false); onClose(); }} />;
+  if (showService) return <ServiceSheet bikeId={bikeId} component={component} onClose={() => { setShowService(false); onClose(); }} />;
+
+  const remainLabel = component.intervalType === "distance" ? units.formatDistance(remaining, du) : units.formatDuration(remaining);
+
+  return (
+    <Sheet title={component.name}
+      subtitle={`${component.intervalType === "distance" ? "Distance" : "Time"} interval · service every ${units.formatInterval(component, du)}`}
+      onClose={onClose}
+      footer={
+        <div style={{ display: "flex", gap: 8, width: "100%" }}>
+          <button className="btn ghost" onClick={() => setShowEdit(true)}>Edit</button>
+          <button className="btn primary" onClick={() => setShowService(true)}>Mark as Serviced</button>
+        </div>
+      }>
+      <ProgressBar pct={pct} status={status} warnPct={warnPct}
+        leftLabel={units.formatAccumulated(component, du)}
+        rightLabel={`${Math.min(Math.round(pct), 100)}% used`} />
+
+      <div className="drawer-stat-row" style={{ marginTop: 16 }}>
+        {[
+          { label: "Used", val: units.formatAccumulated(component, du) },
+          { label: "Remaining", val: remainLabel },
+          { label: "Interval", val: units.formatInterval(component, du) },
+        ].map(s => (
+          <div key={s.label} className="drawer-stat">
+            <div className="drawer-stat-val">{s.val}</div>
+            <div className="drawer-stat-lbl">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".6px" }}>Service History</div>
+        <span className={`badge ${status}`}>{status === "ok" ? "OK" : status === "warning" ? "Warning" : "Overdue"}</span>
+      </div>
+
+      {component.serviceLog.length === 0
+        ? <div className="log-empty">No service records yet</div>
+        : component.serviceLog.map(e => (
+          <div key={e.id} className="log-item">
+            <div className="log-date">{new Date(e.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</div>
+            <div className="log-note">{e.note || <span style={{ color: "var(--text3)", fontStyle: "italic" }}>No notes recorded</span>}</div>
+          </div>
+        ))}
+    </Sheet>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BIKE FORM SHEET
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BikeSheet({ initial, onClose }) {
+  const { dispatch } = useApp();
+  const isEdit = !!initial;
+  const [name, setName] = useState(initial?.name ?? "");
+  const [color, setColor] = useState(initial?.color ?? COLOURS[0]);
+
+  function save() {
+    if (!name.trim()) return;
+    if (isEdit) dispatch({ type: "EDIT_BIKE", id: initial.id, name: name.trim(), color });
+    else dispatch({ type: "ADD_BIKE", name: name.trim(), color });
+    onClose();
+  }
+
+  function del() {
+    if (window.confirm(`Delete "${initial.name}" and all its rides and components? This cannot be undone.`)) {
+      dispatch({ type: "DELETE_BIKE", id: initial.id }); onClose();
+    }
+  }
+
+  return (
+    <Sheet title={isEdit ? "Edit Bike" : "Add a Bike"} onClose={onClose}
+      footer={
+        <div style={{ display: "flex", gap: 8, width: "100%", flexWrap: "wrap" }}>
+          {isEdit && <button className="btn destructive" onClick={del}>Delete Bike</button>}
+          <button className="btn ghost" onClick={onClose}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={!name.trim()}>Save</button>
+        </div>
+      }>
+      <div className="field">
+        <label className="label">Bike Name</label>
+        <input className="input" type="text" placeholder="e.g. Canyon Aeroad CF SL" value={name} onChange={e => setName(e.target.value)} autoFocus onKeyDown={e => e.key === "Enter" && save()} />
+      </div>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label className="label">Accent Colour</label>
+        <div className="swatches">
+          {COLOURS.map(c => <div key={c} className={`swatch ${color === c ? "active" : ""}`} style={{ background: c }} onClick={() => setColor(c)} />)}
+        </div>
+      </div>
+    </Sheet>
   );
 }
 
@@ -979,221 +786,471 @@ function AddBikeModal({ onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function AlertBanner({ components }) {
-  const overdue = components.filter(c => getComponentStatus(c).status === "overdue");
-  const warn = components.filter(c => getComponentStatus(c).status === "warning");
+  const overdue = components.filter(c => getStatus(c).status === "overdue");
+  const warn = components.filter(c => getStatus(c).status === "warning");
   if (!overdue.length && !warn.length) return null;
   return (
-    <>
+    <div style={{ marginBottom: 4 }}>
       {overdue.length > 0 && (
-        <div className="alert-banner">
-          <span className="alert-banner-icon">🔴</span>
-          <div><strong>Service overdue</strong>{overdue.map(c => c.name).join(", ")} need{overdue.length === 1 ? "s" : ""} attention now.</div>
+        <div className="alert-bar danger">
+          <div className="alert-bar-badge">Overdue</div>
+          <div className="alert-bar-text"><strong>Service required</strong>{overdue.map(c => c.name).join(", ")} {overdue.length === 1 ? "needs" : "need"} immediate attention.</div>
         </div>
       )}
       {warn.length > 0 && (
-        <div className="alert-banner warning">
-          <span className="alert-banner-icon">🟡</span>
-          <div><strong>Approaching service interval</strong>{warn.map(c => c.name).join(", ")} will be due soon.</div>
+        <div className="alert-bar warn">
+          <div className="alert-bar-badge">Due Soon</div>
+          <div className="alert-bar-text"><strong>Approaching service interval</strong>{warn.map(c => c.name).join(", ")} will be due soon.</div>
         </div>
       )}
-    </>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RIDE ITEM (with edit + delete)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function RideItem({ ride, bikeId }) {
-  const { dispatch, state } = useApp();
-  const [showEdit, setShowEdit] = useState(false);
-  const du = state.distanceUnit;
-
-  function handleDelete() {
-    if (window.confirm("Delete this ride? Component accumulators will be adjusted.")) {
-      dispatch({ type: "DELETE_RIDE", bikeId, rideId: ride.id });
-    }
-  }
-
-  return (
-    <>
-      <div className="ride-item">
-        <div className="ride-item-left">
-          <div className="ride-dot" />
-          <div style={{ minWidth: 0 }}>
-            <div className="ride-distance">{units.formatDistance(ride.distanceKm, du)}</div>
-            <div className="ride-duration">{units.formatDuration(ride.durationMinutes)}</div>
-            {ride.notes && <div className="ride-notes-preview">{ride.notes}</div>}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <div className="ride-date">{new Date(ride.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</div>
-          <div className="ride-actions">
-            <button className="icon-btn" title="Edit ride" onClick={() => setShowEdit(true)} style={{ fontSize: 12, padding: "4px 7px" }}>✏️</button>
-            <button className="icon-btn danger" title="Delete ride" onClick={handleDelete} style={{ fontSize: 12, padding: "4px 7px" }}>🗑</button>
-          </div>
-        </div>
-      </div>
-      {showEdit && <RideFormModal bikeId={bikeId} initial={ride} onClose={() => setShowEdit(false)} />}
-    </>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN VIEW
-// ─────────────────────────────────────────────────────────────────────────────
-
-function MainView() {
-  const { state, dispatch, activeBike } = useApp();
-  const [showAddRide, setShowAddRide] = useState(false);
-  const [showAddBike, setShowAddBike] = useState(false);
-  const [showAddComponent, setShowAddComponent] = useState(false);
-
-  const totalKm = activeBike ? activeBike.rides.reduce((s, r) => s + r.distanceKm, 0) : 0;
-  const totalMins = activeBike ? activeBike.rides.reduce((s, r) => s + r.durationMinutes, 0) : 0;
-  const rideCount = activeBike ? activeBike.rides.length : 0;
-  const alertCount = activeBike ? activeBike.components.filter(c => getComponentStatus(c).status !== "ok").length : 0;
-
-  return (
-    <div className="app-shell">
-      <style>{CSS}</style>
-
-      <header className="topbar">
-        <div className="topbar-logo"><div className="topbar-logo-dot" />BikeTracker</div>
-        {alertCount > 0 && (
-          <div style={{ background: "#F44336", color: "#fff", fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 8px", lineHeight: 1.6 }}>
-            {alertCount} alert{alertCount !== 1 ? "s" : ""}
-          </div>
-        )}
-        <div className="topbar-spacer" />
-        <button className="unit-toggle" onClick={() => dispatch({ type: "TOGGLE_UNIT" })} title="Toggle distance unit">
-          {state.distanceUnit.toUpperCase()}
-        </button>
-      </header>
-
-      <main className="main-content">
-        <div className="bike-selector-row">
-          {state.bikes.map(bike => (
-            <button key={bike.id} className={`bike-chip ${state.activeBikeId === bike.id ? "active" : ""}`} onClick={() => dispatch({ type: "SET_ACTIVE_BIKE", bikeId: bike.id })}>
-              <div className="bike-chip-dot" style={{ background: state.activeBikeId === bike.id ? "#fff" : bike.color }} />
-              {bike.name}
-            </button>
-          ))}
-          <button className="add-bike-btn" onClick={() => setShowAddBike(true)}>+ Add bike</button>
-        </div>
-
-        {!activeBike && (
-          <div className="no-bike-state">
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🚲</div>
-            <h2>No bikes yet</h2>
-            <p>Add your first bike to start tracking service intervals.</p>
-            <button className="btn-primary" style={{ display: "inline-block", flex: "none", padding: "12px 28px" }} onClick={() => setShowAddBike(true)}>
-              Add your first bike
-            </button>
-          </div>
-        )}
-
-        {activeBike && (
-          <>
-            <AlertBanner components={activeBike.components} />
-
-            <div className="hero-stats">
-              <div className="stat-card">
-                <div className="stat-card-label">Total Distance</div>
-                <div className="stat-card-value">{state.distanceUnit === "mi" ? (totalKm * 0.621371).toFixed(0) : totalKm.toFixed(0)}</div>
-                <div className="stat-card-sub">{state.distanceUnit}</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-card-label">Riding Time</div>
-                <div className="stat-card-value">{units.formatDuration(totalMins)}</div>
-                <div className="stat-card-sub">total</div>
-              </div>
-              <div className="stat-card">
-                <div className="stat-card-label">Rides Logged</div>
-                <div className="stat-card-value">{rideCount}</div>
-                <div className="stat-card-sub">rides</div>
-              </div>
-            </div>
-
-            <button className="add-ride-cta" onClick={() => setShowAddRide(true)}>
-              <div>
-                <div className="add-ride-cta-text">Log a Ride</div>
-                <div className="add-ride-cta-sub">Update all component accumulators</div>
-              </div>
-              <div className="add-ride-cta-icon">
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                  <path d="M9 3v12M3 9h12" stroke="#FFD600" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </div>
-            </button>
-
-            {/* Components */}
-            <div className="section-header">
-              <div className="section-title">
-                Components
-                {activeBike.components.length > 0 && <span style={{ fontWeight: 400, color: "#757575", fontSize: 13, marginLeft: 8 }}>({activeBike.components.length})</span>}
-              </div>
-              <button className="section-action" onClick={() => setShowAddComponent(true)}>+ Add component</button>
-            </div>
-
-            {activeBike.components.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon">⚙️</div>
-                <p>No components yet.<br />Add a chain, fork, brake pads — anything you want to track.<br /><br />
-                  <span style={{ fontSize: 12, color: "#BDBDBD" }}>Tip: tap a component card to view its full history.</span>
-                </p>
-              </div>
-            ) : (
-              <div className="component-list">
-                {[...activeBike.components]
-                  .sort((a, b) => { const o = { overdue: 0, warning: 1, ok: 2 }; return o[getComponentStatus(a).status] - o[getComponentStatus(b).status]; })
-                  .map(comp => <ComponentCard key={comp.id} component={comp} bikeId={activeBike.id} />)}
-              </div>
-            )}
-
-            {/* Rides */}
-            {activeBike.rides.length > 0 && (
-              <div style={{ marginTop: "2rem" }}>
-                <div className="section-header"><div className="section-title">Recent Rides</div></div>
-                <div className="rides-list">
-                  {activeBike.rides.slice(0, 10).map(ride => (
-                    <RideItem key={ride.id} ride={ride} bikeId={activeBike.id} />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div style={{ marginTop: "3rem", textAlign: "center" }}>
-              <button
-                onClick={() => { if (window.confirm(`Delete "${activeBike.name}" and all its data?`)) dispatch({ type: "DELETE_BIKE", bikeId: activeBike.id }); }}
-                style={{ background: "none", border: "none", color: "#BDBDBD", fontSize: 12, cursor: "pointer", textDecoration: "underline" }}
-              >
-                Delete {activeBike.name}
-              </button>
-            </div>
-          </>
-        )}
-      </main>
-
-      {showAddRide && activeBike && <RideFormModal bikeId={activeBike.id} onClose={() => setShowAddRide(false)} />}
-      {showAddBike && <AddBikeModal onClose={() => setShowAddBike(false)} />}
-      {showAddComponent && activeBike && <ComponentFormModal bikeId={activeBike.id} onClose={() => setShowAddComponent(false)} />}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ROOT
+// TAB: DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
+
+function DashboardTab({ onLogRide, onGoComponents }) {
+  const { activeBike, state } = useApp();
+  const du = state.distanceUnit;
+  if (!activeBike) return null;
+
+  const totalKm = activeBike.rides.reduce((s, r) => s + r.distanceKm, 0);
+  const totalMins = activeBike.rides.reduce((s, r) => s + r.durationMinutes, 0);
+  const avgDist = activeBike.rides.length ? totalKm / activeBike.rides.length : 0;
+
+  const sorted = [...activeBike.components].sort((a, b) => {
+    const o = { overdue: 0, warning: 1, ok: 2 };
+    return o[getStatus(a).status] - o[getStatus(b).status];
+  });
+  const urgent = sorted.filter(c => getStatus(c).status !== "ok").slice(0, 3);
+
+  return (
+    <div className="page">
+      <AlertBanner components={activeBike.components} />
+
+      <button className="cta-btn" onClick={onLogRide}>
+        <div>
+          <div className="cta-btn-label">Log a Ride</div>
+          <div className="cta-btn-sub">Updates all component counters</div>
+        </div>
+        <div className="cta-btn-tag">+ New ride</div>
+      </button>
+
+      <div className="stat-grid">
+        <div className="stat-cell">
+          <div className="stat-value">{du === "mi" ? (totalKm * 0.621371).toFixed(0) : totalKm.toFixed(0)}</div>
+          <div className="stat-label">Total {du}</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-value">{units.formatDuration(totalMins)}</div>
+          <div className="stat-label">Ride Time</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-value">{activeBike.rides.length}</div>
+          <div className="stat-label">Rides</div>
+        </div>
+      </div>
+
+      <div className="stat-grid" style={{ marginBottom: 16 }}>
+        <div className="stat-cell">
+          <div className="stat-value">{units.formatDistance(avgDist, du).split(" ")[0]}</div>
+          <div className="stat-label">Avg / Ride</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-value">{activeBike.components.filter(c => getStatus(c).status === "overdue").length}</div>
+          <div className="stat-label">Overdue</div>
+        </div>
+        <div className="stat-cell">
+          <div className="stat-value">{activeBike.components.filter(c => getStatus(c).status === "warning").length}</div>
+          <div className="stat-label">Due Soon</div>
+        </div>
+      </div>
+
+      {urgent.length > 0 && (
+        <>
+          <div className="section-hd">
+            <div className="section-hd-title">Needs Attention</div>
+            <button className="text-btn" onClick={onGoComponents}>View all</button>
+          </div>
+          {urgent.map(c => {
+            const { pct, status } = getStatus(c);
+            const warnPct = ((c.intervalValue - c.warnBuffer) / c.intervalValue) * 100;
+            return (
+              <div key={c.id} className={`comp-card ${status}`} onClick={onGoComponents} style={{ cursor: "pointer" }}>
+                <div className="comp-card-top">
+                  <div>
+                    <div className="comp-name">{c.name}</div>
+                    <div className="comp-meta">{units.formatAccumulated(c, du)} of {units.formatInterval(c, du)}</div>
+                  </div>
+                  <span className={`badge ${status}`}>{status === "warning" ? "Due Soon" : "Overdue"}</span>
+                </div>
+                <ProgressBar pct={pct} status={status} warnPct={warnPct}
+                  leftLabel={units.formatAccumulated(c, du)}
+                  rightLabel={`${Math.min(Math.round(pct), 100)}%`} />
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {activeBike.rides.length > 0 && (
+        <>
+          <div className="section-hd" style={{ marginTop: 8 }}>
+            <div className="section-hd-title">Recent Rides</div>
+          </div>
+          {activeBike.rides.slice(0, 3).map(r => (
+            <div key={r.id} className="ride-item" style={{ cursor: "default" }}>
+              <div className="ride-accent-bar" />
+              <div className="ride-body">
+                <div className="ride-primary">
+                  <span className="ride-dist">{units.formatDistance(r.distanceKm, du)}</span>
+                  <span className="ride-dur">{units.formatDuration(r.durationMinutes)}</span>
+                </div>
+                {r.notes && <div className="ride-notes">{r.notes}</div>}
+                <div className="ride-date">{new Date(r.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ComponentsTab() {
+  const { activeBike, state } = useApp();
+  const du = state.distanceUnit;
+  const [showAdd, setShowAdd] = useState(false);
+  const [detail, setDetail] = useState(null);    // component being viewed
+  const [service, setService] = useState(null);  // component being serviced
+
+  if (!activeBike) return null;
+
+  const sorted = [...activeBike.components].sort((a, b) => {
+    const o = { overdue: 0, warning: 1, ok: 2 };
+    return o[getStatus(a).status] - o[getStatus(b).status];
+  });
+
+  return (
+    <div className="page">
+      <div className="section-hd">
+        <div className="section-hd-title">Components ({activeBike.components.length})</div>
+        <button className="text-btn" onClick={() => setShowAdd(true)}>+ Add component</button>
+      </div>
+
+      {activeBike.components.length === 0 && (
+        <div className="empty">
+          <div className="empty-icon"><svg width="24" height="24" stroke="var(--text3)" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg></div>
+          <div className="empty-title">No components yet</div>
+          <div className="empty-sub">Add your chain, fork, brake pads — any part you want to track. Tap a component anytime to view its full service history.</div>
+          <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowAdd(true)}>Add first component</button>
+        </div>
+      )}
+
+      {sorted.map(c => {
+        const { pct, status } = getStatus(c);
+        const warnPct = ((c.intervalValue - c.warnBuffer) / c.intervalValue) * 100;
+        const lastEntry = c.serviceLog[0];
+        return (
+          <div key={c.id} className={`comp-card ${status}`} onClick={() => setDetail(c)}>
+            <div className="comp-card-top">
+              <div>
+                <div className="comp-name">{c.name}</div>
+                <div className="comp-meta">{units.formatAccumulated(c, du)} used · {units.formatInterval(c, du)} interval</div>
+              </div>
+              <span className={`badge ${status}`}>{status === "ok" ? "OK" : status === "warning" ? "Due Soon" : "Overdue"}</span>
+            </div>
+            <ProgressBar pct={pct} status={status} warnPct={warnPct}
+              leftLabel={units.formatAccumulated(c, du)}
+              rightLabel={`${Math.min(Math.round(pct), 100)}% used`} />
+            <div className="comp-footer" onClick={e => e.stopPropagation()}>
+              <div className="comp-last-service">
+                {lastEntry ? `Last serviced ${new Date(lastEntry.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : "Never serviced"}
+              </div>
+              <div className="action-row">
+                <button className="act" onClick={e => { e.stopPropagation(); setDetail(c); }}>View</button>
+                <button className="act primary" onClick={e => { e.stopPropagation(); setService(c); }}>Service</button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {showAdd && <ComponentSheet bikeId={activeBike.id} onClose={() => setShowAdd(false)} />}
+      {detail && <ComponentDetailSheet bikeId={activeBike.id} component={activeBike.components.find(c => c.id === detail.id) || detail} onClose={() => setDetail(null)} />}
+      {service && <ServiceSheet bikeId={activeBike.id} component={service} onClose={() => setService(null)} />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: RIDES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RidesTab() {
+  const { activeBike, state, dispatch } = useApp();
+  const du = state.distanceUnit;
+  const [showAdd, setShowAdd] = useState(false);
+  const [editRide, setEditRide] = useState(null);
+
+  if (!activeBike) return null;
+
+  function del(ride) {
+    if (window.confirm("Delete this ride? Component counters will be adjusted.")) {
+      dispatch({ type: "DELETE_RIDE", bikeId: activeBike.id, rideId: ride.id });
+    }
+  }
+
+  // Group rides by month
+  const grouped = activeBike.rides.reduce((acc, r) => {
+    const key = new Date(r.date).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(r);
+    return acc;
+  }, {});
+
+  return (
+    <div className="page">
+      <div className="section-hd">
+        <div className="section-hd-title">{activeBike.rides.length} Rides</div>
+        <button className="text-btn" onClick={() => setShowAdd(true)}>+ Log ride</button>
+      </div>
+
+      {activeBike.rides.length === 0 && (
+        <div className="empty">
+          <div className="empty-icon"><svg width="24" height="24" stroke="var(--text3)" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+          <div className="empty-title">No rides yet</div>
+          <div className="empty-sub">Log your first ride to start tracking distance and riding time. Every ride automatically updates your component service counters.</div>
+          <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowAdd(true)}>Log first ride</button>
+        </div>
+      )}
+
+      {Object.entries(grouped).map(([month, rides]) => (
+        <div key={month}>
+          <div className="section-hd" style={{ marginTop: 8 }}>
+            <div className="section-hd-title">{month}</div>
+            <div style={{ fontSize: 11, color: "var(--text3)" }}>
+              {units.formatDistance(rides.reduce((s, r) => s + r.distanceKm, 0), du)}
+            </div>
+          </div>
+          {rides.map(r => (
+            <div key={r.id} className="ride-item">
+              <div className="ride-accent-bar" />
+              <div className="ride-body">
+                <div className="ride-primary">
+                  <span className="ride-dist">{units.formatDistance(r.distanceKm, du)}</span>
+                  <span className="ride-dur">{units.formatDuration(r.durationMinutes)}</span>
+                </div>
+                {r.notes && <div className="ride-notes">{r.notes}</div>}
+                <div className="ride-date">{new Date(r.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</div>
+              </div>
+              <div className="ride-actions">
+                <button className="act" onClick={() => setEditRide(r)}>Edit</button>
+                <button className="act danger" onClick={() => del(r)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {showAdd && <RideSheet bikeId={activeBike.id} onClose={() => setShowAdd(false)} />}
+      {editRide && <RideSheet bikeId={activeBike.id} initial={editRide} onClose={() => setEditRide(null)} />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAB: SETTINGS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SettingsTab() {
+  const { state, dispatch, activeBike } = useApp();
+  const [showAddBike, setShowAddBike] = useState(false);
+  const [editBike, setEditBike] = useState(null);
+  const fileRef = useRef();
+
+  function exportData() {
+    const json = JSON.stringify(state, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "biketracker-backup.json"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importData(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = evt => {
+      try {
+        const data = JSON.parse(evt.target.result);
+        if (!data.bikes || !Array.isArray(data.bikes)) { alert("Invalid backup file."); return; }
+        if (window.confirm("This will replace all current data. Are you sure?")) {
+          dispatch({ type: "IMPORT_DATA", state: data });
+        }
+      } catch { alert("Could not read that file. Make sure it's a BikeTracker backup."); }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
+  return (
+    <div className="page">
+
+      {/* Bikes */}
+      <div className="section-hd">
+        <div className="section-hd-title">Your Bikes</div>
+        <button className="text-btn" onClick={() => setShowAddBike(true)}>+ Add bike</button>
+      </div>
+      <div className="card" style={{ padding: "4px 16px", marginBottom: 16 }}>
+        {state.bikes.map(bike => (
+          <div key={bike.id} className="bike-row">
+            <div className="bike-dot" style={{ background: bike.color }} />
+            <div style={{ flex: 1 }}>
+              <div className="bike-row-name">{bike.name}{bike.id === state.activeBikeId && <span style={{ fontSize: 11, color: "var(--accent)", marginLeft: 8, fontWeight: 600 }}>Active</span>}</div>
+              <div className="bike-row-sub">{bike.rides.length} rides · {bike.components.length} components</div>
+            </div>
+            <div className="action-row">
+              {bike.id !== state.activeBikeId && <button className="act" onClick={() => dispatch({ type: "SET_ACTIVE_BIKE", id: bike.id })}>Switch</button>}
+              <button className="act" onClick={() => setEditBike(bike)}>Edit</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Preferences */}
+      <div className="section-hd"><div className="section-hd-title">Preferences</div></div>
+      <div className="card" style={{ padding: "0 16px", marginBottom: 16 }}>
+        <div className="settings-row">
+          <div>
+            <div className="settings-row-label">Distance Unit</div>
+            <div className="settings-row-sub">Currently showing in {state.distanceUnit === "km" ? "kilometres" : "miles"}</div>
+          </div>
+          <div className="seg" style={{ width: 120 }}>
+            <button className={`seg-opt ${state.distanceUnit === "km" ? "active" : ""}`} onClick={() => state.distanceUnit !== "km" && dispatch({ type: "TOGGLE_UNIT" })}>km</button>
+            <button className={`seg-opt ${state.distanceUnit === "mi" ? "active" : ""}`} onClick={() => state.distanceUnit !== "mi" && dispatch({ type: "TOGGLE_UNIT" })}>mi</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Data */}
+      <div className="section-hd"><div className="section-hd-title">Data</div></div>
+      <div className="card" style={{ padding: "0 16px", marginBottom: 16 }}>
+        <div className="settings-row">
+          <div>
+            <div className="settings-row-label">Export Backup</div>
+            <div className="settings-row-sub">Download all your data as a JSON file</div>
+          </div>
+          <button className="stroke-btn primary" onClick={exportData}>Export</button>
+        </div>
+        <div className="settings-row">
+          <div>
+            <div className="settings-row-label">Import Backup</div>
+            <div className="settings-row-sub">Restore from a previous export</div>
+          </div>
+          <button className="stroke-btn" onClick={() => fileRef.current?.click()}>Import</button>
+          <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }} onChange={importData} />
+        </div>
+      </div>
+
+      {/* About */}
+      <div className="section-hd"><div className="section-hd-title">About</div></div>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>BikeTracker</div>
+        <div style={{ fontSize: 13, color: "var(--text3)", lineHeight: 1.7 }}>
+          Track service intervals for all your bike components. Log rides to automatically update counters and get warned before maintenance is due.<br /><br />
+          Data is stored privately in your browser. Use Export Backup regularly to keep a safe copy.
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 12 }}>Version 3.0</div>
+      </div>
+
+      {showAddBike && <BikeSheet onClose={() => setShowAddBike(false)} />}
+      {editBike && <BikeSheet initial={editBike} onClose={() => setEditBike(null)} />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOT APP
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MainView() {
+  const { state, dispatch, activeBike } = useApp();
+  const [tab, setTab] = useState("dashboard");
+  const [showLogRide, setShowLogRide] = useState(false);
+  const [showAddBike, setShowAddBike] = useState(false);
+
+  const alertCount = activeBike ? activeBike.components.filter(c => getStatus(c).status !== "ok").length : 0;
+
+  const tabs = [
+    { id: "dashboard", label: "Overview", Icon: Icon.Dashboard },
+    { id: "components", label: "Components", Icon: Icon.Components },
+    { id: "rides", label: "Rides", Icon: Icon.Rides },
+    { id: "settings", label: "Settings", Icon: Icon.Settings },
+  ];
+
+  return (
+    <div className="shell">
+      <style>{CSS}</style>
+
+      {/* Top bar */}
+      <header className="topbar">
+        <div className="topbar-wordmark">Bike<span>Tracker</span></div>
+        {activeBike && (
+          <div className="topbar-bike-name" style={{ color: activeBike.color, fontWeight: 600 }}>
+            {activeBike.name}
+          </div>
+        )}
+        <div className="topbar-right">
+          {alertCount > 0 && <div className="alert-dot" title={`${alertCount} alerts`} />}
+          {activeBike && (
+            <button className="pill-btn accent" onClick={() => setShowLogRide(true)}>+ Ride</button>
+          )}
+        </div>
+      </header>
+
+      {/* Page content */}
+      {!activeBike ? (
+        <div className="no-bike page">
+          <h2>Welcome to BikeTracker</h2>
+          <p>Add your first bike to start tracking rides and component service intervals.</p>
+          <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowAddBike(true)}>Add your first bike</button>
+        </div>
+      ) : (
+        <>
+          {tab === "dashboard" && <DashboardTab onLogRide={() => setShowLogRide(true)} onGoComponents={() => setTab("components")} />}
+          {tab === "components" && <ComponentsTab />}
+          {tab === "rides" && <RidesTab />}
+          {tab === "settings" && <SettingsTab />}
+        </>
+      )}
+
+      {/* Bottom nav */}
+      <nav className="bottom-nav">
+        {tabs.map(t => (
+          <button key={t.id} className={`nav-tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+            <div className="nav-tab-icon"><t.Icon /></div>
+            <span className="nav-tab-label">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+
+      {/* Global sheets */}
+      {showLogRide && activeBike && <RideSheet bikeId={activeBike.id} onClose={() => setShowLogRide(false)} />}
+      {showAddBike && <BikeSheet onClose={() => setShowAddBike(false)} />}
+    </div>
+  );
+}
 
 function App() {
   return <AppProvider><MainView /></AppProvider>;
 }
-
-    /* Mount the app */
-    ReactDOM.createRoot(document.getElementById("root")).render(
-      React.createElement(App)
-    );
-  </script>
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
 </body>
 </html>
