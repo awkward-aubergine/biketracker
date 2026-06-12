@@ -2,149 +2,564 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="BikeTracker"/>
-  <meta name="theme-color" content="#0F0F0F"/>
+  <meta name="theme-color" content="#111111"/>
   <title>BikeTracker</title>
   <link rel="apple-touch-icon" href="icon.png"/>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <style>html,body,#root{height:100%;margin:0;background:#0F0F0F}body{overscroll-behavior:none}</style>
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; }
+    body {
+      background: #111;
+      color: #F2F2F2;
+      font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden; /* prevent body scroll — each page scrolls internally */
+    }
+
+    /* ── Design tokens ── */
+    :root {
+      --accent: #FFD600;
+      --accent-dim: rgba(255,214,0,0.12);
+      --bg: #111111;
+      --surface: #1C1C1E;
+      --surface2: #2C2C2E;
+      --surface3: #3A3A3C;
+      --border: rgba(255,255,255,0.10);
+      --text: #F2F2F7;
+      --text2: #AEAEB2;
+      --text3: #636366;
+      --green: #30D158;
+      --green-dim: rgba(48,209,88,0.15);
+      --orange: #FF9F0A;
+      --orange-dim: rgba(255,159,10,0.15);
+      --red: #FF453A;
+      --red-dim: rgba(255,69,58,0.15);
+
+      /* Safe area — these resolve to 0 on non-notch devices */
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --sal: env(safe-area-inset-left, 0px);
+      --sar: env(safe-area-inset-right, 0px);
+
+      --topbar-h: 56px;
+      --nav-h: 56px; /* visual height; actual padding adds --sab below */
+      --radius: 12px;
+      --radius-lg: 18px;
+      --radius-xl: 24px;
+      --tap: 48px; /* minimum tap target */
+    }
+
+    /* ── App shell: full viewport, flex column ── */
+    #root {
+      display: flex;
+      flex-direction: column;
+      /* Stretch into safe areas on sides but not top/bottom (those are handled per-zone) */
+      padding-left: var(--sal);
+      padding-right: var(--sar);
+      max-width: 500px;
+      margin: 0 auto;
+    }
+
+    /* ── Top bar — sits below status bar ── */
+    .topbar {
+      flex-shrink: 0;
+      padding-top: var(--sat);            /* push below notch/status bar */
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar-inner {
+      display: flex;
+      align-items: center;
+      height: var(--topbar-h);
+      padding: 0 16px;
+      gap: 12px;
+    }
+    .topbar-logo {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.4px;
+      color: var(--text);
+      flex: 1;
+    }
+    .topbar-logo span { color: var(--accent); }
+    .topbar-bike {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent);
+      max-width: 160px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: center;
+    }
+    .topbar-right { display: flex; align-items: center; gap: 10px; }
+
+    /* ── Scrollable page area ── */
+    .page {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 20px 16px 24px;
+    }
+    .page::-webkit-scrollbar { display: none; }
+
+    /* ── Bottom nav — sits above home indicator ── */
+    .nav {
+      flex-shrink: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      /* Add safe area padding so tabs float above home indicator */
+      padding-bottom: var(--sab);
+      display: flex;
+    }
+    .nav-tab {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      min-height: var(--nav-h);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text3);
+      transition: color 0.15s;
+      padding: 8px 4px;
+      /* tap target: the whole tab cell is at least --nav-h tall */
+    }
+    .nav-tab.active { color: var(--accent); }
+    .nav-tab svg {
+      width: 22px; height: 22px;
+      stroke: currentColor; fill: none;
+      stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .nav-tab-lbl {
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.3px; text-transform: uppercase;
+    }
+
+    /* ── Buttons — all meet 48px tap target ── */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: var(--tap);
+      padding: 0 20px;
+      border: none; border-radius: var(--radius);
+      font: 600 16px/1 -apple-system, sans-serif;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active { transform: scale(0.97); opacity: 0.85; }
+    .btn:disabled { opacity: 0.35; pointer-events: none; }
+    .btn-primary { background: var(--accent); color: #111; width: 100%; }
+    .btn-ghost { background: var(--surface2); color: var(--text2); }
+    .btn-danger { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,69,58,0.3); }
+    .btn-outline { background: transparent; color: var(--accent); border: 1.5px solid var(--accent); }
+
+    /* Small inline text action — still meets tap target via padding */
+    .tact {
+      background: none; border: none;
+      font: 600 14px/1 -apple-system, sans-serif;
+      color: var(--accent);
+      cursor: pointer;
+      padding: 12px 4px; /* makes touch area ~48px tall */
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tact.danger { color: var(--red); }
+    .tact.muted { color: var(--text3); }
+
+    /* Pill chip */
+    .chip {
+      display: inline-flex; align-items: center;
+      min-height: 34px; padding: 0 14px;
+      border-radius: 999px; font-size: 13px; font-weight: 600;
+      cursor: pointer; border: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .chip-accent { background: var(--accent-dim); color: var(--accent); }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .card-body { padding: 16px; }
+    .card-row {
+      display: flex; align-items: center;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .card-row:last-child { border-bottom: none; }
+
+    /* ── CTA banner ── */
+    .cta {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--accent);
+      border-radius: var(--radius-lg);
+      padding: 20px 20px;
+      margin-bottom: 16px;
+      border: none; width: 100%; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .cta:active { transform: scale(0.98); opacity: 0.9; }
+    .cta-left { text-align: left; }
+    .cta-title { font-size: 17px; font-weight: 700; color: #111; }
+    .cta-sub { font-size: 13px; color: rgba(0,0,0,0.5); margin-top: 3px; }
+    .cta-badge {
+      background: #111; color: var(--accent);
+      font-size: 12px; font-weight: 700;
+      padding: 6px 14px; border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    /* ── Stat grid ── */
+    .stat-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 10px; margin-bottom: 16px;
+    }
+    .stat-cell {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 10px; text-align: center;
+    }
+    .stat-val { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+    .stat-lbl { font-size: 11px; font-weight: 500; color: var(--text3); margin-top: 5px; text-transform: uppercase; letter-spacing: 0.4px; }
+
+    /* ── Alert strip ── */
+    .alert-strip {
+      display: flex; gap: 10px; align-items: flex-start;
+      padding: 12px 14px; border-radius: var(--radius);
+      margin-bottom: 12px; font-size: 14px; line-height: 1.5;
+    }
+    .alert-strip.danger { background: var(--red-dim); border: 1px solid rgba(255,69,58,0.25); }
+    .alert-strip.warn   { background: var(--orange-dim); border: 1px solid rgba(255,159,10,0.25); }
+    .alert-badge {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 999px; white-space: nowrap; flex-shrink: 0; margin-top: 1px;
+    }
+    .alert-strip.danger .alert-badge { background: var(--red-dim); color: var(--red); border: 1px solid rgba(255,69,58,0.3); }
+    .alert-strip.warn   .alert-badge { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(255,159,10,0.3); }
+    .alert-text { color: var(--text2); }
+    .alert-text strong { display: block; color: var(--text); font-weight: 600; margin-bottom: 2px; }
+
+    /* ── Section header ── */
+    .sec {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px; margin-top: 6px;
+    }
+    .sec-title {
+      font-size: 12px; font-weight: 600; color: var(--text3);
+      text-transform: uppercase; letter-spacing: 0.6px;
+    }
+
+    /* ── Progress bar ── */
+    .prog { margin: 10px 0 8px; }
+    .prog-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text3); margin-bottom: 6px; }
+    .prog-track { height: 6px; background: var(--surface3); border-radius: 999px; position: relative; overflow: visible; }
+    .prog-fill { height: 100%; border-radius: 999px; transition: width 0.5s ease; min-width: 6px; }
+    .prog-fill.ok      { background: var(--green); }
+    .prog-fill.warning { background: var(--orange); }
+    .prog-fill.overdue { background: var(--red); }
+    .prog-marker { position: absolute; top: -3px; width: 2px; height: 12px; background: rgba(255,255,255,0.2); border-radius: 1px; }
+
+    /* ── Status badge ── */
+    .badge {
+      display: inline-block;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase;
+      padding: 3px 9px; border-radius: 999px;
+    }
+    .badge.ok      { background: var(--green-dim);  color: var(--green); }
+    .badge.warning { background: var(--orange-dim); color: var(--orange); }
+    .badge.overdue { background: var(--red-dim);    color: var(--red); }
+
+    /* ── Component card ── */
+    .comp-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 16px;
+      margin-bottom: 12px; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s;
+    }
+    .comp-card:active { opacity: 0.8; }
+    .comp-card.warning { border-color: rgba(255,159,10,0.4); }
+    .comp-card.overdue { border-color: rgba(255,69,58,0.4); }
+    .comp-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 4px; }
+    .comp-name { font-size: 16px; font-weight: 600; color: var(--text); }
+    .comp-sub  { font-size: 13px; color: var(--text3); margin-top: 3px; }
+    .comp-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; gap: 8px; }
+    .comp-serviced { font-size: 12px; color: var(--text3); }
+
+    /* ── Ride row ── */
+    .ride-row {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px;
+      margin-bottom: 10px; display: flex; align-items: flex-start; gap: 12px;
+    }
+    .ride-bar { width: 3px; border-radius: 999px; background: var(--accent); align-self: stretch; min-height: 40px; flex-shrink: 0; }
+    .ride-body { flex: 1; min-width: 0; }
+    .ride-dist { font-size: 16px; font-weight: 700; color: var(--text); }
+    .ride-dur  { font-size: 14px; color: var(--text2); margin-left: 8px; }
+    .ride-notes { font-size: 13px; color: var(--text3); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ride-date  { font-size: 12px; color: var(--text3); margin-top: 4px; }
+    .ride-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+
+    /* ── Sheet / modal ── */
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 200;
+      display: flex; align-items: flex-end; justify-content: center;
+      animation: fadeIn 0.15s ease;
+    }
+    .sheet {
+      background: var(--surface);
+      /* rounded top corners only */
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      width: 100%; max-width: 500px;
+      /* max height leaves some screen visible above */
+      max-height: calc(100vh - 60px - var(--sat));
+      display: flex; flex-direction: column;
+      animation: slideUp 0.2s cubic-bezier(0.4,0,0.2,1);
+    }
+    .sheet-handle {
+      width: 36px; height: 4px;
+      background: var(--surface3); border-radius: 999px;
+      margin: 12px auto 0; flex-shrink: 0;
+    }
+    .sheet-header {
+      padding: 16px 20px 0;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+    }
+    .sheet-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .sheet-title { font-size: 20px; font-weight: 700; color: var(--text); letter-spacing: -0.4px; }
+    .sheet-sub { font-size: 14px; color: var(--text3); margin-top: 3px; }
+    /* Sheet body scrolls independently */
+    .sheet-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 20px; }
+    .sheet-body::-webkit-scrollbar { display: none; }
+    /* Footer always visible, above home indicator */
+    .sheet-footer {
+      flex-shrink: 0;
+      padding: 12px 20px;
+      padding-bottom: calc(12px + var(--sab));
+      border-top: 1px solid var(--border);
+      display: flex; gap: 10px;
+    }
+
+    /* ── Forms ── */
+    .field { margin-bottom: 20px; }
+    .field:last-child { margin-bottom: 0; }
+    .label {
+      display: block; font-size: 12px; font-weight: 600;
+      color: var(--text3); text-transform: uppercase; letter-spacing: 0.6px;
+      margin-bottom: 8px;
+    }
+    .input {
+      width: 100%; height: var(--tap);
+      padding: 0 14px;
+      background: var(--surface2); border: 1.5px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      font: 16px/1 -apple-system, sans-serif; /* 16px prevents iOS zoom */
+      outline: none; -webkit-appearance: none;
+      transition: border-color 0.15s;
+    }
+    .input:focus { border-color: var(--accent); }
+    .input.error { border-color: var(--red); }
+    .input::placeholder { color: var(--text3); }
+    .textarea {
+      width: 100%; min-height: 88px; padding: 12px 14px;
+      background: var(--surface2); border: 1.5px solid var(--border);
+      border-radius: var(--radius); color: var(--text);
+      font: 16px/1.5 -apple-system, sans-serif;
+      outline: none; resize: vertical; -webkit-appearance: none;
+      transition: border-color 0.15s;
+    }
+    .textarea:focus { border-color: var(--accent); }
+    .textarea::placeholder { color: var(--text3); }
+    .input-hint { font-size: 12px; color: var(--text3); margin-top: 6px; line-height: 1.4; }
+    .input-error { font-size: 12px; color: var(--red); margin-top: 6px; }
+    .input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Segmented control */
+    .seg {
+      display: flex; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 3px; gap: 3px;
+    }
+    .seg-opt {
+      flex: 1; height: 40px;
+      border: none; border-radius: 9px;
+      font: 600 14px/1 -apple-system, sans-serif;
+      cursor: pointer; color: var(--text3);
+      background: transparent;
+      transition: background 0.15s, color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .seg-opt.active { background: var(--surface3); color: var(--text); }
+
+    /* Colour swatches */
+    .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+    .swatch {
+      width: 32px; height: 32px; border-radius: 50%;
+      cursor: pointer; border: 2px solid transparent;
+      transition: transform 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .swatch.active { border-color: #fff; transform: scale(1.2); }
+
+    /* ── Detail stat row (inside component drawer) ── */
+    .detail-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin: 14px 0; }
+    .detail-stat { background: var(--surface2); border-radius: var(--radius); padding: 12px 8px; text-align: center; }
+    .detail-stat-val { font-size: 15px; font-weight: 700; color: var(--text); }
+    .detail-stat-lbl { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 4px; }
+
+    /* ── Service log ── */
+    .log-item {
+      border-left: 3px solid var(--accent);
+      background: var(--surface2); border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 10px 14px; margin-bottom: 10px;
+    }
+    .log-date { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+    .log-note { font-size: 14px; color: var(--text); line-height: 1.5; }
+
+    /* ── Settings rows ── */
+    .set-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 0; border-bottom: 1px solid var(--border); gap: 12px;
+    }
+    .set-row:last-child { border-bottom: none; }
+    .set-row-text { flex: 1; min-width: 0; }
+    .set-row-label { font-size: 15px; font-weight: 500; color: var(--text); }
+    .set-row-sub   { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+    /* ── Bike selector rows ── */
+    .bike-row { display: flex; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border); gap: 12px; }
+    .bike-row:last-child { border-bottom: none; }
+    .bike-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+    .bike-row-info { flex: 1; min-width: 0; }
+    .bike-row-name { font-size: 15px; font-weight: 600; color: var(--text); }
+    .bike-row-sub  { font-size: 12px; color: var(--text3); margin-top: 2px; }
+
+    /* ── Empty states ── */
+    .empty { text-align: center; padding: 48px 20px; }
+    .empty-title { font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+    .empty-sub { font-size: 14px; color: var(--text3); line-height: 1.6; margin-bottom: 28px; }
+
+    /* ── Welcome ── */
+    .welcome {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 40px 24px; text-align: center;
+    }
+    .welcome h1 { font-size: 26px; font-weight: 700; margin-bottom: 10px; }
+    .welcome p  { font-size: 15px; color: var(--text3); line-height: 1.6; margin-bottom: 32px; }
+
+    /* ── Month separator ── */
+    .month-sep { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.6px; padding: 16px 0 8px; }
+
+    /* ── Animations ── */
+    @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ── No horizontal overflow ── */
+    * { max-width: 100%; }
+    img, video { max-width: 100%; }
+  </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useReducer, useContext, createContext, useRef } = React;
+// ─── React hooks ───────────────────────────────────────────────────────────
+const { useState, useEffect, useReducer, useContext, createContext, useCallback, useRef } = React;
 
-/**
- * @typedef {Object} Ride
- * @property {string} id
- * @property {number} distanceKm
- * @property {number} durationMinutes
- * @property {string} date
- * @property {string} notes
- */
+// ─── Constants ─────────────────────────────────────────────────────────────
+const SK = "biketracker_v4";
+const COLOURS = ["#FFD600","#FF6B6B","#C77DFF","#5B9BF7","#00D2FF","#43E97B","#FF9A3C","#8E8E93"];
 
-/**
- * @typedef {Object} ServiceLogEntry
- * @property {string} id
- * @property {string} date
- * @property {string} note
- */
-
-/**
- * @typedef {'distance'|'time'} IntervalType
- * @typedef {Object} BikeComponent
- * @property {string}            id
- * @property {string}            name
- * @property {IntervalType}      intervalType
- * @property {number}            intervalValue
- * @property {number}            warnBuffer     — remaining distance/time at which to warn
- * @property {number}            accumulated
- * @property {ServiceLogEntry[]} serviceLog
- */
-
-/**
- * @typedef {Object} Bike
- * @property {string}          id
- * @property {string}          name
- * @property {string}          color
- * @property {BikeComponent[]} components
- * @property {Ride[]}          rides
- * @property {string}          createdAt
- */
-
-/**
- * @typedef {Object} AppState
- * @property {Bike[]}      bikes
- * @property {string|null} activeBikeId
- * @property {'km'|'mi'}   distanceUnit
- */
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STORAGE
-// ─────────────────────────────────────────────────────────────────────────────
-
-const STORAGE_KEY = "biketracker_v3";
-const storage = {
-  load() { try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : null; } catch { return null; } },
-  save(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch (e) { console.error(e); } },
+// ─── Storage ───────────────────────────────────────────────────────────────
+const stor = {
+  load() { try { const r = localStorage.getItem(SK); return r ? JSON.parse(r) : null; } catch { return null; } },
+  save(s) { try { localStorage.setItem(SK, JSON.stringify(s)); } catch(e) { console.error(e); } },
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UNITS
-// ─────────────────────────────────────────────────────────────────────────────
-
-const units = {
-  miToKm: (mi) => mi / 0.621371,
-  formatDistance(km, unit) { return unit === "mi" ? `${(km * 0.621371).toFixed(1)} mi` : `${km.toFixed(1)} km`; },
-  formatDuration(minutes) {
-    const h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
-    if (h === 0) return `${m}m`;
-    if (m === 0) return `${h}h`;
+// ─── Units ─────────────────────────────────────────────────────────────────
+const U = {
+  miToKm: mi => mi / 0.621371,
+  kmToMi: km => km * 0.621371,
+  fmtDist(km, unit) {
+    if (unit === "mi") return `${(km * 0.621371).toFixed(1)} mi`;
+    return `${km.toFixed(1)} km`;
+  },
+  fmtDur(mins) {
+    const h = Math.floor(mins / 60), m = Math.round(mins % 60);
+    if (!h) return `${m}m`;
+    if (!m) return `${h}h`;
     return `${h}h ${m}m`;
   },
   parseHHMM(str) {
     if (!str) return 0;
-    const [h, m] = String(str).split(":");
-    return (parseInt(h, 10) || 0) * 60 + Math.min(parseInt(m, 10) || 0, 59);
+    const parts = String(str).split(":");
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return h * 60 + Math.min(m, 59);
   },
-  minutesToHHMM(minutes) {
-    const h = Math.floor(minutes / 60), m = Math.round(minutes % 60);
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  toHHMM(mins) {
+    const h = Math.floor(mins / 60), m = Math.round(mins % 60);
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
   },
-  formatInterval(c, unit) { return c.intervalType === "distance" ? units.formatDistance(c.intervalValue, unit) : units.formatDuration(c.intervalValue); },
-  formatAccumulated(c, unit) { return c.intervalType === "distance" ? units.formatDistance(c.accumulated, unit) : units.formatDuration(c.accumulated); },
-  formatBuffer(c, unit) { return c.intervalType === "distance" ? units.formatDistance(c.warnBuffer, unit) : units.formatDuration(c.warnBuffer); },
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RIDE SERVICE  (Strava stub — replace build() body to ingest from API)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const rideService = {
-  build(data) {
-    // ── STRAVA INTEGRATION POINT ──────────────────────────────────────────
-    // const act = await stravaClient.getActivity(id);
-    // data = { distanceKm: act.distance/1000, durationMinutes: act.moving_time/60 };
-    // ─────────────────────────────────────────────────────────────────────
-    return { id: crypto.randomUUID(), distanceKm: Math.max(0, +data.distanceKm || 0), durationMinutes: Math.max(0, +data.durationMinutes || 0), date: data.date || new Date().toISOString(), notes: data.notes || "" };
+  fmtInterval(c, unit) {
+    return c.intervalType === "distance" ? U.fmtDist(c.intervalValue, unit) : U.fmtDur(c.intervalValue);
+  },
+  fmtAccum(c, unit) {
+    return c.intervalType === "distance" ? U.fmtDist(c.accumulated, unit) : U.fmtDur(c.accumulated);
   },
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STATUS HELPER
-// ─────────────────────────────────────────────────────────────────────────────
-
-function getStatus(comp) {
-  const pct = Math.min((comp.accumulated / comp.intervalValue) * 100, 100);
-  const remaining = Math.max(comp.intervalValue - comp.accumulated, 0);
+// ─── Status helper ─────────────────────────────────────────────────────────
+function getStatus(c) {
+  const pct = Math.min((c.accumulated / c.intervalValue) * 100, 100);
+  const remaining = Math.max(c.intervalValue - c.accumulated, 0);
   let status = "ok";
-  if (comp.accumulated >= comp.intervalValue) status = "overdue";
-  else if (remaining <= comp.warnBuffer) status = "warning";
+  if (c.accumulated >= c.intervalValue) status = "overdue";
+  else if (remaining <= c.warnBuffer) status = "warning";
   return { pct, status, remaining };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SEED DATA
-// ─────────────────────────────────────────────────────────────────────────────
-
-function seed() {
+// ─── Seed data ─────────────────────────────────────────────────────────────
+function makeSeed() {
   const id = crypto.randomUUID(), now = new Date().toISOString();
   return {
-    bikes: [{ id, name: "Trek Domane SL5", color: "#FFD600", createdAt: now,
+    bikes: [{
+      id, name: "Trek Domane SL5", color: "#FFD600", createdAt: now,
       components: [
-        { id: crypto.randomUUID(), name: "Chain",                 intervalType: "distance", intervalValue: 500,  warnBuffer: 100, accumulated: 427, serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Chain",                 intervalType: "distance", intervalValue: 500,  warnBuffer: 100, accumulated: 427,  serviceLog: [] },
         { id: crypto.randomUUID(), name: "Fork Service",          intervalType: "time",     intervalValue: 3000, warnBuffer: 300, accumulated: 2450, serviceLog: [] },
-        { id: crypto.randomUUID(), name: "Brake Pads",            intervalType: "distance", intervalValue: 1500, warnBuffer: 200, accumulated: 620, serviceLog: [] },
-        { id: crypto.randomUUID(), name: "Rear Derailleur Cable", intervalType: "distance", intervalValue: 2000, warnBuffer: 250, accumulated: 580, serviceLog: [] },
-        { id: crypto.randomUUID(), name: "Tubeless Sealant",      intervalType: "time",     intervalValue: 360,  warnBuffer: 60,  accumulated: 185, serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Brake Pads",            intervalType: "distance", intervalValue: 1500, warnBuffer: 200, accumulated: 620,  serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Rear Derailleur Cable", intervalType: "distance", intervalValue: 2000, warnBuffer: 250, accumulated: 580,  serviceLog: [] },
+        { id: crypto.randomUUID(), name: "Tubeless Sealant",      intervalType: "time",     intervalValue: 360,  warnBuffer: 60,  accumulated: 185,  serviceLog: [] },
       ],
       rides: [
-        { id: crypto.randomUUID(), distanceKm: 42, durationMinutes: 95, date: now, notes: "Morning loop, good conditions" },
+        { id: crypto.randomUUID(), distanceKm: 42, durationMinutes: 95, date: now, notes: "Morning loop, great conditions" },
         { id: crypto.randomUUID(), distanceKm: 28, durationMinutes: 60, date: now, notes: "" },
       ],
     }],
@@ -153,13 +568,11 @@ function seed() {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// REDUCER
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── Reducer ───────────────────────────────────────────────────────────────
 function reducer(state, action) {
   switch (action.type) {
-    case "SET_ACTIVE_BIKE": return { ...state, activeBikeId: action.id };
+
+    case "SET_ACTIVE": return { ...state, activeBikeId: action.id };
     case "TOGGLE_UNIT": return { ...state, distanceUnit: state.distanceUnit === "km" ? "mi" : "km" };
 
     case "ADD_BIKE": {
@@ -174,10 +587,11 @@ function reducer(state, action) {
     }
 
     case "ADD_RIDE": {
-      const ride = rideService.build(action.data);
+      const ride = { id: crypto.randomUUID(), distanceKm: +action.data.distanceKm, durationMinutes: +action.data.durationMinutes, date: new Date().toISOString(), notes: action.data.notes || "" };
       return { ...state, bikes: state.bikes.map(b => {
         if (b.id !== action.bikeId) return b;
-        return { ...b, rides: [ride, ...b.rides], components: b.components.map(c => ({ ...c, accumulated: c.accumulated + (c.intervalType === "distance" ? ride.distanceKm : ride.durationMinutes) })) };
+        const comps = b.components.map(c => ({ ...c, accumulated: c.accumulated + (c.intervalType === "distance" ? ride.distanceKm : ride.durationMinutes) }));
+        return { ...b, rides: [ride, ...b.rides], components: comps };
       })};
     }
     case "EDIT_RIDE": {
@@ -185,9 +599,10 @@ function reducer(state, action) {
         if (b.id !== action.bikeId) return b;
         const old = b.rides.find(r => r.id === action.rideId);
         if (!old) return b;
-        const nd = Math.max(0, +action.data.distanceKm || 0), nt = Math.max(0, +action.data.durationMinutes || 0);
+        const nd = +action.data.distanceKm, nt = +action.data.durationMinutes;
         const dd = nd - old.distanceKm, dt = nt - old.durationMinutes;
-        return { ...b,
+        return {
+          ...b,
           rides: b.rides.map(r => r.id !== action.rideId ? r : { ...r, distanceKm: nd, durationMinutes: nt, notes: action.data.notes ?? r.notes }),
           components: b.components.map(c => ({ ...c, accumulated: Math.max(0, c.accumulated + (c.intervalType === "distance" ? dd : dt)) })),
         };
@@ -198,341 +613,98 @@ function reducer(state, action) {
         if (b.id !== action.bikeId) return b;
         const ride = b.rides.find(r => r.id === action.rideId);
         if (!ride) return b;
-        return { ...b, rides: b.rides.filter(r => r.id !== action.rideId), components: b.components.map(c => ({ ...c, accumulated: Math.max(0, c.accumulated - (c.intervalType === "distance" ? ride.distanceKm : ride.durationMinutes)) })) };
+        return {
+          ...b,
+          rides: b.rides.filter(r => r.id !== action.rideId),
+          components: b.components.map(c => ({ ...c, accumulated: Math.max(0, c.accumulated - (c.intervalType === "distance" ? ride.distanceKm : ride.durationMinutes)) })),
+        };
       })};
     }
 
-    case "ADD_COMPONENT": {
-      const c = { id: crypto.randomUUID(), name: action.data.name, intervalType: action.data.intervalType, intervalValue: +action.data.intervalValue, warnBuffer: +action.data.warnBuffer, accumulated: 0, serviceLog: [] };
+    case "ADD_COMP": {
+      const c = { id: crypto.randomUUID(), ...action.data, accumulated: 0, serviceLog: [] };
       return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: [...b.components, c] }) };
     }
-    case "EDIT_COMPONENT":
-      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: b.components.map(c => c.id !== action.compId ? c : { ...c, name: action.data.name, intervalType: action.data.intervalType, intervalValue: +action.data.intervalValue, warnBuffer: +action.data.warnBuffer }) }) };
-    case "DELETE_COMPONENT":
+    case "EDIT_COMP":
+      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : {
+        ...b, components: b.components.map(c => c.id !== action.compId ? c : { ...c, ...action.data })
+      })};
+    case "DELETE_COMP":
       return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: b.components.filter(c => c.id !== action.compId) }) };
-    case "SERVICE_COMPONENT":
-      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : { ...b, components: b.components.map(c => c.id !== action.compId ? c : { ...c, accumulated: 0, serviceLog: [{ id: crypto.randomUUID(), date: new Date().toISOString(), note: action.note || "" }, ...c.serviceLog] }) }) };
+    case "SERVICE_COMP":
+      return { ...state, bikes: state.bikes.map(b => b.id !== action.bikeId ? b : {
+        ...b, components: b.components.map(c => c.id !== action.compId ? c : {
+          ...c, accumulated: 0,
+          serviceLog: [{ id: crypto.randomUUID(), date: new Date().toISOString(), note: action.note || "" }, ...c.serviceLog],
+        }),
+      })};
 
-    case "IMPORT_DATA": return action.state;
+    case "IMPORT": return action.state;
     default: return state;
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONTEXT
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── Context ───────────────────────────────────────────────────────────────
 const Ctx = createContext(null);
 function AppProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, null, () => storage.load() || seed());
-  useEffect(() => { storage.save(state); }, [state]);
+  const [state, dispatch] = useReducer(reducer, null, () => stor.load() || makeSeed());
+  useEffect(() => { stor.save(state); }, [state]);
   const activeBike = state.bikes.find(b => b.id === state.activeBikeId) ?? null;
   return <Ctx.Provider value={{ state, dispatch, activeBike }}>{children}</Ctx.Provider>;
 }
-function useApp() { return useContext(Ctx); }
+const useApp = () => useContext(Ctx);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DESIGN TOKENS & GLOBAL CSS
-// ─────────────────────────────────────────────────────────────────────────────
-
-const COLOURS = ["#FFD600","#FF5252","#E040FB","#536DFE","#00BCD4","#00C853","#FF6D00","#37474F","#F06292","#26C6DA"];
-
-const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --accent:#FFD600;
-  --bg:#0F0F0F;
-  --surface:#1A1A1A;
-  --surface2:#242424;
-  --surface3:#2E2E2E;
-  --border:#333333;
-  --text:#F0F0F0;
-  --text2:#A0A0A0;
-  --text3:#606060;
-  --green:#22C55E;--green-bg:rgba(34,197,94,.12);--green-text:#4ADE80;
-  --yellow:#F59E0B;--yellow-bg:rgba(245,158,11,.12);--yellow-text:#FCD34D;
-  --red:#EF4444;--red-bg:rgba(239,68,68,.12);--red-text:#FCA5A5;
-  --accent-bg:rgba(255,214,0,.1);
-  --radius:10px;--radius-lg:16px;--radius-xl:20px;
-  --shadow:0 2px 8px rgba(0,0,0,.4);
-  --shadow-lg:0 8px 32px rgba(0,0,0,.5);
-  --font:'Inter',system-ui,sans-serif;
-  --nav-h:64px;
-  --transition:all .18s cubic-bezier(.4,0,.2,1);
-}
-html,body,#root{height:100%;background:var(--bg)}
-body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased;overflow-x:hidden}
-
-/* ── Shell ── */
-.shell{display:flex;flex-direction:column;height:100%;max-width:480px;margin:0 auto;position:relative}
-@media(min-width:480px){.shell{border-left:1px solid var(--border);border-right:1px solid var(--border)}}
-
-/* ── Top Bar ── */
-.topbar{display:flex;align-items:center;padding:0 18px;height:56px;background:var(--bg);border-bottom:1px solid var(--border);flex-shrink:0;gap:12px;position:sticky;top:0;z-index:50}
-.topbar-wordmark{font-size:15px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
-.topbar-wordmark span{color:var(--accent)}
-.topbar-bike-name{font-size:13px;color:var(--text2);font-weight:500;flex:1;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.topbar-right{display:flex;align-items:center;gap:8px}
-.pill-btn{background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-family:var(--font);font-size:12px;font-weight:600;color:var(--text2);cursor:pointer;transition:var(--transition);white-space:nowrap;letter-spacing:.3px}
-.pill-btn:hover{background:var(--surface3);color:var(--text)}
-.pill-btn.accent{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
-.alert-dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-
-/* ── Bottom Nav ── */
-.bottom-nav{display:flex;background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;height:var(--nav-h);position:sticky;bottom:0;z-index:50;padding-bottom:env(safe-area-inset-bottom)}
-.nav-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:none;border:none;cursor:pointer;transition:var(--transition);padding:10px 4px;color:var(--text3)}
-.nav-tab.active{color:var(--accent)}
-.nav-tab-icon{width:22px;height:22px;display:flex;align-items:center;justify-content:center}
-.nav-tab svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.nav-tab-label{font-size:10px;font-weight:600;letter-spacing:.4px;text-transform:uppercase}
-
-/* ── Scrollable content area ── */
-.page{flex:1;overflow-y:auto;padding:16px 16px 8px;-webkit-overflow-scrolling:touch}
-.page::-webkit-scrollbar{width:0}
-
-/* ── Cards ── */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:12px}
-.card-sm{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:8px}
-.card.warn{border-color:rgba(245,158,11,.4);background:rgba(245,158,11,.04)}
-.card.danger{border-color:rgba(239,68,68,.4);background:rgba(239,68,68,.04)}
-
-/* ── Stat grid ── */
-.stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px}
-.stat-cell{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 10px;text-align:center}
-.stat-value{font-size:20px;font-weight:700;color:var(--text);letter-spacing:-.5px;line-height:1}
-.stat-label{font-size:10px;font-weight:500;color:var(--text3);letter-spacing:.5px;text-transform:uppercase;margin-top:5px}
-
-/* ── CTA button ── */
-.cta-btn{display:flex;align-items:center;justify-content:space-between;background:var(--accent);border-radius:var(--radius-lg);padding:18px 20px;margin-bottom:16px;border:none;width:100%;cursor:pointer;transition:var(--transition)}
-.cta-btn:active{transform:scale(.98)}
-.cta-btn-label{font-family:var(--font);font-size:16px;font-weight:700;color:#0F0F0F;letter-spacing:-.2px}
-.cta-btn-sub{font-family:var(--font);font-size:12px;color:rgba(15,15,15,.55);margin-top:2px;font-weight:400}
-.cta-btn-tag{background:#0F0F0F;color:var(--accent);font-size:11px;font-weight:700;padding:5px 12px;border-radius:999px;letter-spacing:.3px;white-space:nowrap}
-
-/* ── Alert banners ── */
-.alert-bar{display:flex;gap:12px;padding:12px 14px;border-radius:var(--radius);margin-bottom:8px;font-size:13px;line-height:1.5;animation:fadeDown .2s ease}
-.alert-bar.danger{background:var(--red-bg);border:1px solid rgba(239,68,68,.3)}
-.alert-bar.warn{background:var(--yellow-bg);border:1px solid rgba(245,158,11,.3)}
-.alert-bar-badge{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0;align-self:flex-start;margin-top:1px}
-.alert-bar.danger .alert-bar-badge{background:var(--red-bg);color:var(--red-text);border:1px solid rgba(239,68,68,.3)}
-.alert-bar.warn .alert-bar-badge{background:var(--yellow-bg);color:var(--yellow-text);border:1px solid rgba(245,158,11,.3)}
-.alert-bar-text{color:var(--text2);font-size:13px}
-.alert-bar-text strong{color:var(--text);font-weight:600;display:block;margin-bottom:2px}
-
-/* ── Section headers ── */
-.section-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;margin-top:4px}
-.section-hd-title{font-size:12px;font-weight:600;color:var(--text3);letter-spacing:.6px;text-transform:uppercase}
-.text-btn{background:none;border:none;font-family:var(--font);font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;padding:4px 0;letter-spacing:.2px}
-.text-btn.danger{color:var(--red-text)}
-.text-btn:hover{opacity:.8}
-
-/* ── Progress bar ── */
-.prog-wrap{margin:10px 0 6px}
-.prog-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--text3);margin-bottom:6px;font-variant-numeric:tabular-nums}
-.prog-track{height:6px;background:var(--surface3);border-radius:999px;overflow:visible;position:relative}
-.prog-fill{height:100%;border-radius:999px;transition:width .5s cubic-bezier(.4,0,.2,1);min-width:6px;position:relative}
-.prog-fill.ok{background:var(--green)}
-.prog-fill.warning{background:var(--yellow)}
-.prog-fill.overdue{background:var(--red)}
-.prog-marker{position:absolute;top:-3px;width:2px;height:12px;background:rgba(255,255,255,.2);border-radius:1px;z-index:1}
-
-/* ── Status badge ── */
-.badge{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:999px;flex-shrink:0}
-.badge.ok{background:var(--green-bg);color:var(--green-text)}
-.badge.warning{background:var(--yellow-bg);color:var(--yellow-text)}
-.badge.overdue{background:var(--red-bg);color:var(--red-text)}
-
-/* ── Component card ── */
-.comp-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px;margin-bottom:10px;cursor:pointer;transition:var(--transition)}
-.comp-card:active{transform:scale(.99)}
-.comp-card.warning{border-color:rgba(245,158,11,.35)}
-.comp-card.overdue{border-color:rgba(239,68,68,.35)}
-.comp-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:4px}
-.comp-name{font-size:15px;font-weight:600;color:var(--text);letter-spacing:-.2px}
-.comp-meta{font-size:12px;color:var(--text3);margin-top:2px}
-.comp-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:8px}
-.comp-last-service{font-size:11px;color:var(--text3)}
-.comp-actions{display:flex;gap:6px}
-
-/* ── Ride item ── */
-.ride-item{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px}
-.ride-accent-bar{width:3px;border-radius:999px;background:var(--accent);flex-shrink:0;align-self:stretch;min-height:36px}
-.ride-body{flex:1;min-width:0}
-.ride-primary{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
-.ride-dist{font-size:15px;font-weight:700;color:var(--text)}
-.ride-dur{font-size:13px;color:var(--text2);font-weight:500}
-.ride-notes{font-size:12px;color:var(--text3);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ride-date{font-size:11px;color:var(--text3);margin-top:4px;font-variant-numeric:tabular-nums}
-.ride-actions{display:flex;flex-direction:column;gap:4px;flex-shrink:0;align-items:flex-end}
-
-/* ── Inline text buttons for actions ── */
-.action-row{display:flex;gap:12px;align-items:center}
-.act{background:none;border:none;font-family:var(--font);font-size:12px;font-weight:600;color:var(--text3);cursor:pointer;padding:0;transition:var(--transition);letter-spacing:.1px}
-.act:hover{color:var(--text)}
-.act.primary{color:var(--accent)}
-.act.danger{color:var(--red-text)}
-
-/* ── Stroked button ── */
-.stroke-btn{background:transparent;border:1px solid var(--border);border-radius:var(--radius);padding:8px 14px;font-family:var(--font);font-size:13px;font-weight:600;color:var(--text2);cursor:pointer;transition:var(--transition);white-space:nowrap}
-.stroke-btn:hover{border-color:var(--text2);color:var(--text)}
-.stroke-btn.primary{border-color:var(--accent);color:var(--accent)}
-.stroke-btn.danger{border-color:rgba(239,68,68,.5);color:var(--red-text)}
-
-/* ── Modals / sheets ── */
-.sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .15s ease;backdrop-filter:blur(4px)}
-@media(min-width:480px){.sheet-overlay{align-items:center}}
-.sheet{background:var(--surface);border-radius:var(--radius-xl) var(--radius-xl) 0 0;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;animation:slideUp .2s cubic-bezier(.4,0,.2,1);padding:0}
-@media(min-width:480px){.sheet{border-radius:var(--radius-xl)}}
-.sheet-handle{width:36px;height:4px;background:var(--border);border-radius:999px;margin:14px auto 0}
-@media(min-width:480px){.sheet-handle{display:none}}
-.sheet-header{padding:20px 20px 0;position:sticky;top:0;background:var(--surface);z-index:1}
-.sheet-title{font-size:19px;font-weight:700;color:var(--text);letter-spacing:-.4px;margin-bottom:4px}
-.sheet-subtitle{font-size:13px;color:var(--text3);margin-bottom:0}
-.sheet-body{padding:20px}
-.sheet-footer{display:flex;gap:10px;padding:0 20px 28px}
-
-/* ── Form elements ── */
-.field{margin-bottom:18px}
-.label{display:block;font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.6px;text-transform:uppercase;margin-bottom:8px}
-.input{width:100%;padding:11px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:15px;color:var(--text);transition:var(--transition);-webkit-appearance:none;outline:none}
-.input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-.input::placeholder{color:var(--text3)}
-.textarea{width:100%;padding:11px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);font-family:var(--font);font-size:14px;color:var(--text);resize:vertical;min-height:80px;line-height:1.6;transition:var(--transition);outline:none}
-.textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-.textarea::placeholder{color:var(--text3)}
-.input-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.hint{font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5}
-.seg{display:flex;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:3px;gap:3px}
-.seg-opt{flex:1;padding:8px;border:none;border-radius:7px;background:transparent;font-family:var(--font);font-size:13px;font-weight:500;color:var(--text3);cursor:pointer;transition:var(--transition);text-align:center}
-.seg-opt.active{background:var(--surface3);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.3)}
-
-/* ── Primary/secondary buttons ── */
-.btn{border:none;border-radius:var(--radius);padding:13px 20px;font-family:var(--font);font-size:15px;font-weight:600;cursor:pointer;transition:var(--transition);white-space:nowrap}
-.btn.primary{background:var(--accent);color:#0F0F0F;flex:1}
-.btn.primary:hover{background:#FFE033}
-.btn.primary:disabled{opacity:.35;cursor:not-allowed}
-.btn.ghost{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
-.btn.ghost:hover{background:var(--surface3);color:var(--text)}
-.btn.destructive{background:var(--red-bg);color:var(--red-text);border:1px solid rgba(239,68,68,.3)}
-
-/* ── Colour swatches ── */
-.swatches{display:flex;gap:8px;flex-wrap:wrap}
-.swatch{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:var(--transition)}
-.swatch.active{border-color:#fff;transform:scale(1.18)}
-
-/* ── Detail drawer ── */
-.drawer-stat-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px}
-.drawer-stat{background:var(--surface2);border-radius:var(--radius);padding:12px 8px;text-align:center}
-.drawer-stat-val{font-size:14px;font-weight:700;color:var(--text);letter-spacing:-.3px}
-.drawer-stat-lbl{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-top:4px}
-
-/* ── Service log ── */
-.log-item{border-left:2px solid var(--accent);padding:10px 14px;margin-bottom:8px;background:var(--surface2);border-radius:0 var(--radius) var(--radius) 0}
-.log-date{font-size:11px;color:var(--text3);margin-bottom:4px;font-variant-numeric:tabular-nums}
-.log-note{font-size:13px;color:var(--text);line-height:1.5}
-.log-empty{font-size:13px;color:var(--text3);text-align:center;padding:24px 0;font-style:italic}
-
-/* ── Bike selector (settings) ── */
-.bike-row{display:flex;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--border)}
-.bike-row:last-child{border-bottom:none}
-.bike-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
-.bike-row-name{flex:1;font-size:15px;font-weight:500;color:var(--text)}
-.bike-row-sub{font-size:12px;color:var(--text3);margin-top:2px}
-
-/* ── Settings rows ── */
-.settings-row{display:flex;align-items:center;justify-content:space-between;padding:16px 0;border-bottom:1px solid var(--border)}
-.settings-row:last-child{border-bottom:none}
-.settings-row-label{font-size:14px;font-weight:500;color:var(--text)}
-.settings-row-sub{font-size:12px;color:var(--text3);margin-top:2px}
-.toggle{width:46px;height:26px;background:var(--surface3);border-radius:999px;position:relative;cursor:pointer;border:none;transition:var(--transition);flex-shrink:0}
-.toggle.on{background:var(--accent)}
-.toggle-thumb{width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:var(--transition);box-shadow:0 1px 3px rgba(0,0,0,.4)}
-.toggle.on .toggle-thumb{left:23px}
-
-/* ── Empty states ── */
-.empty{text-align:center;padding:48px 20px}
-.empty-icon{width:56px;height:56px;background:var(--surface2);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
-.empty-title{font-size:17px;font-weight:600;color:var(--text);margin-bottom:6px}
-.empty-sub{font-size:14px;color:var(--text3);line-height:1.6;margin-bottom:24px}
-
-/* ── Divider ── */
-.divider{height:1px;background:var(--border);margin:16px 0}
-
-/* ── No bike state ── */
-.no-bike{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:40px 24px;text-align:center}
-.no-bike h2{font-size:22px;font-weight:700;margin-bottom:8px}
-.no-bike p{font-size:14px;color:var(--text3);margin-bottom:28px;line-height:1.6}
-
-/* ── Animations ── */
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-@keyframes fadeDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
-@keyframes slideUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
-`;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SVG ICONS (text-only UI — these are minimal line icons used only in bottom nav)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const Icon = {
-  Dashboard: () => <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>,
-  Components: () => <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>,
-  Rides: () => <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>,
-  Settings: () => <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>,
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED: DurationInput (HH:MM)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function DurationInput({ value, onChange, placeholder = "00:00" }) {
+// ─── Shared: HH:MM input ───────────────────────────────────────────────────
+function DurInput({ value, onChange, hasError }) {
   function handle(e) {
     let v = e.target.value.replace(/[^\d:]/g, "");
-    if (v.length === 2 && !v.includes(":") && value.length < 3) v += ":";
-    if (v.includes(":")) { const [h, m] = v.split(":"); if (m !== undefined && m.length > 2) return; }
+    if (v.length === 2 && !v.includes(":") && (value || "").length < 3) v += ":";
+    if (v.includes(":")) { const [,m] = v.split(":"); if ((m || "").length > 2) return; }
     onChange(v);
   }
-  return <input className="input" type="text" inputMode="numeric" placeholder={placeholder} value={value} onChange={handle} maxLength={5} />;
+  return (
+    <input
+      className={`input${hasError ? " error" : ""}`}
+      type="text" inputMode="numeric"
+      placeholder="01:30" value={value} onChange={handle} maxLength={5}
+    />
+  );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED: ProgressBar
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ProgressBar({ pct, status, warnPct, leftLabel, rightLabel }) {
+// ─── Shared: Progress bar ──────────────────────────────────────────────────
+function ProgBar({ pct, status, warnPct }) {
+  const clampedPct = Math.min(pct, 100);
+  const showMarker = warnPct > 2 && warnPct < 98;
   return (
-    <div className="prog-wrap">
-      <div className="prog-labels">
-        <span>{leftLabel}</span>
-        <span style={{ color: status === "overdue" ? "var(--red-text)" : status === "warning" ? "var(--yellow-text)" : "var(--text3)" }}>{rightLabel}</span>
+    <div className="prog">
+      <div className="prog-row">
+        <span>{Math.round(clampedPct)}% used</span>
+        <span style={{ color: status === "overdue" ? "var(--red)" : status === "warning" ? "var(--orange)" : "var(--text3)" }}>
+          {status === "overdue" ? "Overdue" : status === "warning" ? "Due soon" : "OK"}
+        </span>
       </div>
       <div className="prog-track">
-        {warnPct > 0 && warnPct < 100 && <div className="prog-marker" style={{ left: `calc(${warnPct}% - 1px)` }} />}
-        <div className={`prog-fill ${status}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+        {showMarker && <div className="prog-marker" style={{ left: `calc(${warnPct}% - 1px)` }} />}
+        <div className={`prog-fill ${status}`} style={{ width: `${clampedPct}%` }} />
       </div>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHEET WRAPPER
-// ─────────────────────────────────────────────────────────────────────────────
-
-function Sheet({ title, subtitle, onClose, children, footer }) {
+// ─── Shared: Sheet wrapper ─────────────────────────────────────────────────
+function Sheet({ title, subtitle, onClose, footer, children }) {
   return (
-    <div className="sheet-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="sheet">
+    <div className="overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="sheet" onClick={e => e.stopPropagation()}>
         <div className="sheet-handle" />
         <div className="sheet-header">
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", paddingTop: 6 }}>
+          <div className="sheet-title-row">
             <div>
               <div className="sheet-title">{title}</div>
-              {subtitle && <div className="sheet-subtitle">{subtitle}</div>}
+              {subtitle && <div className="sheet-sub">{subtitle}</div>}
             </div>
-            <button className="act" onClick={onClose} style={{ fontSize: 13, marginTop: 2 }}>Close</button>
+            <button className="tact muted" onClick={onClose} style={{ flexShrink: 0 }}>Close</button>
           </div>
-          <div className="divider" style={{ marginBottom: 0 }} />
         </div>
         <div className="sheet-body">{children}</div>
         {footer && <div className="sheet-footer">{footer}</div>}
@@ -541,40 +713,93 @@ function Sheet({ title, subtitle, onClose, children, footer }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RIDE FORM SHEET
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Alert Banner ──────────────────────────────────────────────────────────
+function AlertBanner({ components }) {
+  const overdue = components.filter(c => getStatus(c).status === "overdue");
+  const warning = components.filter(c => getStatus(c).status === "warning");
+  if (!overdue.length && !warning.length) return null;
+  return (
+    <div style={{ marginBottom: 4 }}>
+      {overdue.length > 0 && (
+        <div className="alert-strip danger">
+          <div className="alert-badge">Overdue</div>
+          <div className="alert-text">
+            <strong>Service required now</strong>
+            {overdue.map(c => c.name).join(", ")}
+          </div>
+        </div>
+      )}
+      {warning.length > 0 && (
+        <div className="alert-strip warn">
+          <div className="alert-badge">Due soon</div>
+          <div className="alert-text">
+            <strong>Service coming up</strong>
+            {warning.map(c => c.name).join(", ")}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
+// ─── Ride Sheet ────────────────────────────────────────────────────────────
 function RideSheet({ bikeId, initial, onClose }) {
   const { dispatch, state } = useApp();
   const du = state.distanceUnit;
   const isEdit = !!initial;
-  const initDist = isEdit ? (du === "mi" ? (initial.distanceKm * 0.621371).toFixed(2) : initial.distanceKm.toFixed(2)) : "";
-  const [dist, setDist] = useState(initDist);
-  const [dur, setDur] = useState(isEdit ? units.minutesToHHMM(initial.durationMinutes) : "");
-  const [notes, setNotes] = useState(isEdit ? initial.notes : "");
+
+  const [dist, setDist] = useState(isEdit ? (du === "mi" ? (initial.distanceKm * 0.621371).toFixed(2) : initial.distanceKm.toFixed(2)) : "");
+  const [dur,  setDur]  = useState(isEdit ? U.toHHMM(initial.durationMinutes) : "");
+  const [notes,setNotes]= useState(isEdit ? (initial.notes || "") : "");
+  const [errors, setErrors] = useState({});
+
+  function validate() {
+    const e = {};
+    if (!dist || isNaN(+dist) || +dist <= 0) e.dist = "Enter a valid distance";
+    setErrors(e);
+    return !Object.keys(e).length;
+  }
 
   function save() {
-    const dk = du === "mi" ? units.miToKm(+dist) : +dist;
-    const dm = units.parseHHMM(dur);
-    if (isEdit) dispatch({ type: "EDIT_RIDE", bikeId, rideId: initial.id, data: { distanceKm: dk, durationMinutes: dm, notes } });
-    else dispatch({ type: "ADD_RIDE", bikeId, data: { distanceKm: dk, durationMinutes: dm, notes } });
+    if (!validate()) return;
+    const dk = du === "mi" ? U.miToKm(+dist) : +dist;
+    const dm = U.parseHHMM(dur);
+    if (isEdit) {
+      dispatch({ type: "EDIT_RIDE", bikeId, rideId: initial.id, data: { distanceKm: dk, durationMinutes: dm, notes } });
+    } else {
+      dispatch({ type: "ADD_RIDE", bikeId, data: { distanceKm: dk, durationMinutes: dm, notes } });
+    }
     onClose();
   }
 
   return (
-    <Sheet title={isEdit ? "Edit Ride" : "Log a Ride"} onClose={onClose}
-      footer={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save} disabled={!+dist}>Save Ride</button></>}>
+    <Sheet
+      title={isEdit ? "Edit Ride" : "Log a Ride"}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save}>Save Ride</button>
+        </>
+      }
+    >
       <div className="field">
         <label className="label">Distance ({du})</label>
-        <input className="input" type="number" inputMode="decimal" placeholder="e.g. 45" value={dist} onChange={e => setDist(e.target.value)} autoFocus />
+        <input
+          className={`input${errors.dist ? " error" : ""}`}
+          type="number" inputMode="decimal"
+          placeholder={du === "mi" ? "e.g. 28.0" : "e.g. 45.0"}
+          value={dist} onChange={e => { setDist(e.target.value); setErrors({}); }}
+          autoFocus
+        />
+        {errors.dist && <div className="input-error">{errors.dist}</div>}
       </div>
       <div className="field">
         <label className="label">Duration (HH:MM)</label>
-        <DurationInput value={dur} onChange={setDur} placeholder="01:30" />
-        <div className="hint">Hours and minutes — e.g. 01:30 for 1 hour 30 minutes</div>
+        <DurInput value={dur} onChange={setDur} />
+        <div className="input-hint">e.g. 01:30 = 1 hour 30 minutes. Leave blank if unknown.</div>
       </div>
-      <div className="field" style={{ marginBottom: 0 }}>
+      <div className="field">
         <label className="label">Notes (optional)</label>
         <textarea className="textarea" placeholder="Route, conditions, how you felt…" value={notes} onChange={e => setNotes(e.target.value)} />
       </div>
@@ -582,313 +807,348 @@ function RideSheet({ bikeId, initial, onClose }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT FORM SHEET
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ComponentSheet({ bikeId, initial, onClose }) {
+// ─── Component Sheet ───────────────────────────────────────────────────────
+function CompSheet({ bikeId, initial, onClose }) {
   const { dispatch } = useApp();
   const isEdit = !!initial;
-  const [name, setName] = useState(initial?.name ?? "");
+
+  const [name,  setName]  = useState(initial?.name ?? "");
   const [itype, setItype] = useState(initial?.intervalType ?? "distance");
-  const [ival, setIval] = useState(() => {
+  const [ival,  setIval]  = useState(() => {
     if (!initial) return "";
-    return initial.intervalType === "time" ? units.minutesToHHMM(initial.intervalValue) : String(initial.intervalValue);
+    return initial.intervalType === "time" ? U.toHHMM(initial.intervalValue) : String(initial.intervalValue);
   });
   const [wbuf, setWbuf] = useState(() => {
     if (!initial) return "";
-    return initial.intervalType === "time" ? units.minutesToHHMM(initial.warnBuffer) : String(initial.warnBuffer);
+    return initial.intervalType === "time" ? U.toHHMM(initial.warnBuffer) : String(initial.warnBuffer);
   });
+  const [errors, setErrors] = useState({});
 
-  function changeType(t) { setItype(t); setIval(""); setWbuf(""); }
+  function changeType(t) { setItype(t); setIval(""); setWbuf(""); setErrors({}); }
+
+  function validate() {
+    const e = {};
+    if (!name.trim()) e.name = "Component name is required";
+    if (!ival) e.ival = "Service interval is required";
+    else {
+      const v = itype === "time" ? U.parseHHMM(ival) : +ival;
+      if (!v || v <= 0) e.ival = "Enter a value greater than zero";
+    }
+    setErrors(e);
+    return !Object.keys(e).length;
+  }
 
   function save() {
-    const iv = itype === "time" ? units.parseHHMM(ival) : +ival;
-    const wb = itype === "time" ? units.parseHHMM(wbuf) : +wbuf || 0;
-    if (isEdit) dispatch({ type: "EDIT_COMPONENT", bikeId, compId: initial.id, data: { name, intervalType: itype, intervalValue: iv, warnBuffer: wb } });
-    else dispatch({ type: "ADD_COMPONENT", bikeId, data: { name, intervalType: itype, intervalValue: iv, warnBuffer: wb } });
+    if (!validate()) return;
+    const iv = itype === "time" ? U.parseHHMM(ival) : +ival;
+    const wb = itype === "time" ? U.parseHHMM(wbuf) : (+wbuf || 0);
+    const data = { name: name.trim(), intervalType: itype, intervalValue: iv, warnBuffer: wb };
+    if (isEdit) dispatch({ type: "EDIT_COMP",   bikeId, compId: initial.id, data });
+    else        dispatch({ type: "ADD_COMP",    bikeId, data });
     onClose();
   }
 
   function del() {
-    if (window.confirm(`Permanently delete "${initial.name}"?`)) { dispatch({ type: "DELETE_COMPONENT", bikeId, compId: initial.id }); onClose(); }
+    if (window.confirm(`Delete "${initial.name}"? This cannot be undone.`)) {
+      dispatch({ type: "DELETE_COMP", bikeId, compId: initial.id });
+      onClose();
+    }
   }
 
   const isTime = itype === "time";
 
   return (
-    <Sheet title={isEdit ? "Edit Component" : "Add Component"} onClose={onClose}
+    <Sheet
+      title={isEdit ? "Edit Component" : "Add Component"}
+      onClose={onClose}
       footer={
-        <div style={{ display: "flex", gap: 8, width: "100%", flexWrap: "wrap" }}>
-          {isEdit && <button className="btn destructive" onClick={del}>Delete</button>}
-          <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={save} disabled={!name.trim() || !ival}>Save</button>
+        <div style={{ display: "flex", gap: 10, width: "100%", flexWrap: "wrap" }}>
+          {isEdit && <button className="btn btn-danger" onClick={del}>Delete</button>}
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save}>Save</button>
         </div>
-      }>
+      }
+    >
       <div className="field">
         <label className="label">Component Name</label>
-        <input className="input" type="text" placeholder="e.g. Chain, Fork Service, Tyres" value={name} onChange={e => setName(e.target.value)} autoFocus />
+        <input
+          className={`input${errors.name ? " error" : ""}`}
+          type="text" placeholder="e.g. Chain, Fork Service, Tyres"
+          value={name} onChange={e => { setName(e.target.value); setErrors({}); }}
+          autoFocus
+        />
+        {errors.name && <div className="input-error">{errors.name}</div>}
       </div>
+
       <div className="field">
         <label className="label">Interval Type</label>
         <div className="seg">
-          <button className={`seg-opt ${itype === "distance" ? "active" : ""}`} onClick={() => changeType("distance")}>Distance</button>
-          <button className={`seg-opt ${itype === "time" ? "active" : ""}`} onClick={() => changeType("time")}>Riding Time</button>
+          <button className={`seg-opt${itype === "distance" ? " active" : ""}`} onClick={() => changeType("distance")}>Distance</button>
+          <button className={`seg-opt${itype === "time"     ? " active" : ""}`} onClick={() => changeType("time")}>Riding Time</button>
         </div>
       </div>
+
       <div className="field">
-        <label className="label">{isTime ? "Service Every (HH:MM riding time)" : "Service Every (km)"}</label>
+        <label className="label">{isTime ? "Service every (HH:MM of riding)" : "Service every (km)"}</label>
         {isTime
-          ? <DurationInput value={ival} onChange={setIval} placeholder="50:00" />
-          : <input className="input" type="number" inputMode="numeric" placeholder="e.g. 500" value={ival} onChange={e => setIval(e.target.value)} />}
-        <div className="hint">{isTime ? "e.g. 50:00 = service every 50 hours of riding" : "Distance ridden before this component needs service"}</div>
+          ? <DurInput value={ival} onChange={v => { setIval(v); setErrors({}); }} hasError={!!errors.ival} />
+          : <input className={`input${errors.ival ? " error" : ""}`} type="number" inputMode="numeric" placeholder="e.g. 500" value={ival} onChange={e => { setIval(e.target.value); setErrors({}); }} />}
+        {errors.ival
+          ? <div className="input-error">{errors.ival}</div>
+          : <div className="input-hint">{isTime ? "e.g. 50:00 = service every 50 hours of riding" : "Distance before this component needs servicing"}</div>}
       </div>
-      <div className="field" style={{ marginBottom: 0 }}>
-        <label className="label">{isTime ? "Warn when this much time remains (HH:MM)" : "Warn when this many km remain"}</label>
+
+      <div className="field">
+        <label className="label">{isTime ? "Warn when remaining (HH:MM)" : "Warn when remaining (km)"}</label>
         {isTime
-          ? <DurationInput value={wbuf} onChange={setWbuf} placeholder="05:00" />
+          ? <DurInput value={wbuf} onChange={setWbuf} />
           : <input className="input" type="number" inputMode="numeric" placeholder="e.g. 100" value={wbuf} onChange={e => setWbuf(e.target.value)} />}
-        <div className="hint">{isTime ? "e.g. 05:00 = show yellow warning when 5 hours of the interval remain" : "e.g. 100 = show yellow warning when 100 km of the interval remain"}</div>
+        <div className="input-hint">{isTime ? "e.g. 05:00 = warn when 5 hours of the interval remain" : "e.g. 100 = turn yellow when 100 km of the interval remain"}</div>
       </div>
     </Sheet>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SERVICE SHEET (captures note)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ServiceSheet({ bikeId, component, onClose }) {
+// ─── Service Sheet ─────────────────────────────────────────────────────────
+function ServiceSheet({ bikeId, comp, onClose }) {
   const { dispatch } = useApp();
   const [note, setNote] = useState("");
-  function save() { dispatch({ type: "SERVICE_COMPONENT", bikeId, compId: component.id, note }); onClose(); }
-  return (
-    <Sheet title="Mark as Serviced" subtitle={component.name} onClose={onClose}
-      footer={<><button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" onClick={save}>Confirm Service</button></>}>
-      <div className="field" style={{ marginBottom: 0 }}>
-        <label className="label">Service Notes (optional)</label>
-        <textarea className="textarea" placeholder="e.g. Replaced KMC X11 chain. Checked wear — 0.5% stretch." value={note} onChange={e => setNote(e.target.value)} autoFocus />
-        <div className="hint">Notes are saved to this component's service history.</div>
-      </div>
-    </Sheet>
-  );
-}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// COMPONENT DETAIL SHEET
-// ─────────────────────────────────────────────────────────────────────────────
-
-function ComponentDetailSheet({ bikeId, component, onClose }) {
-  const { state } = useApp();
-  const du = state.distanceUnit;
-  const { pct, status, remaining } = getStatus(component);
-  const warnPct = ((component.intervalValue - component.warnBuffer) / component.intervalValue) * 100;
-  const [showEdit, setShowEdit] = useState(false);
-  const [showService, setShowService] = useState(false);
-
-  if (showEdit) return <ComponentSheet bikeId={bikeId} initial={component} onClose={() => { setShowEdit(false); onClose(); }} />;
-  if (showService) return <ServiceSheet bikeId={bikeId} component={component} onClose={() => { setShowService(false); onClose(); }} />;
-
-  const remainLabel = component.intervalType === "distance" ? units.formatDistance(remaining, du) : units.formatDuration(remaining);
+  function save() {
+    dispatch({ type: "SERVICE_COMP", bikeId, compId: comp.id, note });
+    onClose();
+  }
 
   return (
-    <Sheet title={component.name}
-      subtitle={`${component.intervalType === "distance" ? "Distance" : "Time"} interval · service every ${units.formatInterval(component, du)}`}
+    <Sheet
+      title="Mark as Serviced"
+      subtitle={comp.name}
       onClose={onClose}
       footer={
-        <div style={{ display: "flex", gap: 8, width: "100%" }}>
-          <button className="btn ghost" onClick={() => setShowEdit(true)}>Edit</button>
-          <button className="btn primary" onClick={() => setShowService(true)}>Mark as Serviced</button>
-        </div>
-      }>
-      <ProgressBar pct={pct} status={status} warnPct={warnPct}
-        leftLabel={units.formatAccumulated(component, du)}
-        rightLabel={`${Math.min(Math.round(pct), 100)}% used`} />
-
-      <div className="drawer-stat-row" style={{ marginTop: 16 }}>
-        {[
-          { label: "Used", val: units.formatAccumulated(component, du) },
-          { label: "Remaining", val: remainLabel },
-          { label: "Interval", val: units.formatInterval(component, du) },
-        ].map(s => (
-          <div key={s.label} className="drawer-stat">
-            <div className="drawer-stat-val">{s.val}</div>
-            <div className="drawer-stat-lbl">{s.label}</div>
-          </div>
-        ))}
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save}>Confirm</button>
+        </>
+      }
+    >
+      <div className="field">
+        <label className="label">Service Notes (optional)</label>
+        <textarea
+          className="textarea"
+          placeholder="e.g. Replaced chain. Wear at 0.5%. Used KMC X11."
+          value={note} onChange={e => setNote(e.target.value)}
+          autoFocus
+        />
+        <div className="input-hint">Notes are saved to this component's service history.</div>
       </div>
-
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text3)", textTransform: "uppercase", letterSpacing: ".6px" }}>Service History</div>
-        <span className={`badge ${status}`}>{status === "ok" ? "OK" : status === "warning" ? "Warning" : "Overdue"}</span>
-      </div>
-
-      {component.serviceLog.length === 0
-        ? <div className="log-empty">No service records yet</div>
-        : component.serviceLog.map(e => (
-          <div key={e.id} className="log-item">
-            <div className="log-date">{new Date(e.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</div>
-            <div className="log-note">{e.note || <span style={{ color: "var(--text3)", fontStyle: "italic" }}>No notes recorded</span>}</div>
-          </div>
-        ))}
     </Sheet>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BIKE FORM SHEET
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Component Detail Sheet ────────────────────────────────────────────────
+function CompDetailSheet({ bikeId, compId, onClose }) {
+  const { state } = useApp();
+  const du = state.distanceUnit;
+  // Always look up freshest version from state
+  const bike = state.bikes.find(b => b.id === bikeId);
+  const comp = bike?.components.find(c => c.id === compId);
 
+  const [showEdit, setShowEdit] = useState(false);
+  const [showSvc,  setShowSvc]  = useState(false);
+
+  if (!comp) { onClose(); return null; }
+  if (showEdit) return <CompSheet bikeId={bikeId} initial={comp} onClose={() => { setShowEdit(false); onClose(); }} />;
+  if (showSvc)  return <ServiceSheet bikeId={bikeId} comp={comp} onClose={() => { setShowSvc(false); }} />;
+
+  const { pct, status, remaining } = getStatus(comp);
+  const warnPct = comp.intervalValue > 0 ? ((comp.intervalValue - comp.warnBuffer) / comp.intervalValue) * 100 : 0;
+  const remLabel = comp.intervalType === "distance" ? U.fmtDist(remaining, du) : U.fmtDur(remaining);
+
+  return (
+    <Sheet
+      title={comp.name}
+      subtitle={`Service every ${U.fmtInterval(comp, du)}`}
+      onClose={onClose}
+      footer={
+        <div style={{ display: "flex", gap: 10, width: "100%" }}>
+          <button className="btn btn-ghost" onClick={() => setShowEdit(true)}>Edit</button>
+          <button className="btn btn-primary" onClick={() => setShowSvc(true)}>Mark as Serviced</button>
+        </div>
+      }
+    >
+      <ProgBar pct={pct} status={status} warnPct={warnPct} />
+
+      <div className="detail-stats">
+        {[
+          { label: "Used",      val: U.fmtAccum(comp, du) },
+          { label: "Remaining", val: remLabel },
+          { label: "Interval",  val: U.fmtInterval(comp, du) },
+        ].map(s => (
+          <div key={s.label} className="detail-stat">
+            <div className="detail-stat-val">{s.val}</div>
+            <div className="detail-stat-lbl">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, marginTop: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.5px" }}>Service History</div>
+        <span className={`badge ${status}`}>{status === "ok" ? "OK" : status === "warning" ? "Due soon" : "Overdue"}</span>
+      </div>
+
+      {comp.serviceLog.length === 0 ? (
+        <div style={{ fontSize: 14, color: "var(--text3)", textAlign: "center", padding: "20px 0", fontStyle: "italic" }}>No service records yet</div>
+      ) : (
+        comp.serviceLog.map(e => (
+          <div key={e.id} className="log-item">
+            <div className="log-date">{new Date(e.date).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</div>
+            <div className="log-note">{e.note || <span style={{ color: "var(--text3)", fontStyle: "italic" }}>No notes recorded</span>}</div>
+          </div>
+        ))
+      )}
+    </Sheet>
+  );
+}
+
+// ─── Bike Sheet ────────────────────────────────────────────────────────────
 function BikeSheet({ initial, onClose }) {
   const { dispatch } = useApp();
   const isEdit = !!initial;
-  const [name, setName] = useState(initial?.name ?? "");
+  const [name,  setName]  = useState(initial?.name  ?? "");
   const [color, setColor] = useState(initial?.color ?? COLOURS[0]);
+  const [errors, setErrors] = useState({});
 
   function save() {
-    if (!name.trim()) return;
+    if (!name.trim()) { setErrors({ name: "Bike name is required" }); return; }
     if (isEdit) dispatch({ type: "EDIT_BIKE", id: initial.id, name: name.trim(), color });
-    else dispatch({ type: "ADD_BIKE", name: name.trim(), color });
+    else        dispatch({ type: "ADD_BIKE",  name: name.trim(), color });
     onClose();
   }
 
   function del() {
     if (window.confirm(`Delete "${initial.name}" and all its rides and components? This cannot be undone.`)) {
-      dispatch({ type: "DELETE_BIKE", id: initial.id }); onClose();
+      dispatch({ type: "DELETE_BIKE", id: initial.id });
+      onClose();
     }
   }
 
   return (
-    <Sheet title={isEdit ? "Edit Bike" : "Add a Bike"} onClose={onClose}
+    <Sheet
+      title={isEdit ? "Edit Bike" : "Add a Bike"}
+      onClose={onClose}
       footer={
-        <div style={{ display: "flex", gap: 8, width: "100%", flexWrap: "wrap" }}>
-          {isEdit && <button className="btn destructive" onClick={del}>Delete Bike</button>}
-          <button className="btn ghost" onClick={onClose}>Cancel</button>
-          <button className="btn primary" onClick={save} disabled={!name.trim()}>Save</button>
+        <div style={{ display: "flex", gap: 10, width: "100%", flexWrap: "wrap" }}>
+          {isEdit && <button className="btn btn-danger" onClick={del}>Delete Bike</button>}
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={save}>Save</button>
         </div>
-      }>
+      }
+    >
       <div className="field">
         <label className="label">Bike Name</label>
-        <input className="input" type="text" placeholder="e.g. Canyon Aeroad CF SL" value={name} onChange={e => setName(e.target.value)} autoFocus onKeyDown={e => e.key === "Enter" && save()} />
+        <input
+          className={`input${errors.name ? " error" : ""}`}
+          type="text" placeholder="e.g. Canyon Aeroad CF SL"
+          value={name} onChange={e => { setName(e.target.value); setErrors({}); }}
+          autoFocus
+          onKeyDown={e => e.key === "Enter" && save()}
+        />
+        {errors.name && <div className="input-error">{errors.name}</div>}
       </div>
-      <div className="field" style={{ marginBottom: 0 }}>
-        <label className="label">Accent Colour</label>
+      <div className="field">
+        <label className="label">Colour</label>
         <div className="swatches">
-          {COLOURS.map(c => <div key={c} className={`swatch ${color === c ? "active" : ""}`} style={{ background: c }} onClick={() => setColor(c)} />)}
+          {COLOURS.map(c => (
+            <div key={c} className={`swatch${color === c ? " active" : ""}`} style={{ background: c }} onClick={() => setColor(c)} />
+          ))}
         </div>
       </div>
     </Sheet>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ALERT BANNER
-// ─────────────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════════════════════
 
-function AlertBanner({ components }) {
-  const overdue = components.filter(c => getStatus(c).status === "overdue");
-  const warn = components.filter(c => getStatus(c).status === "warning");
-  if (!overdue.length && !warn.length) return null;
-  return (
-    <div style={{ marginBottom: 4 }}>
-      {overdue.length > 0 && (
-        <div className="alert-bar danger">
-          <div className="alert-bar-badge">Overdue</div>
-          <div className="alert-bar-text"><strong>Service required</strong>{overdue.map(c => c.name).join(", ")} {overdue.length === 1 ? "needs" : "need"} immediate attention.</div>
-        </div>
-      )}
-      {warn.length > 0 && (
-        <div className="alert-bar warn">
-          <div className="alert-bar-badge">Due Soon</div>
-          <div className="alert-bar-text"><strong>Approaching service interval</strong>{warn.map(c => c.name).join(", ")} will be due soon.</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TAB: DASHBOARD
-// ─────────────────────────────────────────────────────────────────────────────
-
-function DashboardTab({ onLogRide, onGoComponents }) {
+// ─── Overview Tab ──────────────────────────────────────────────────────────
+function OverviewTab({ onLogRide, onGoComponents }) {
   const { activeBike, state } = useApp();
   const du = state.distanceUnit;
   if (!activeBike) return null;
 
-  const totalKm = activeBike.rides.reduce((s, r) => s + r.distanceKm, 0);
+  const totalKm   = activeBike.rides.reduce((s, r) => s + r.distanceKm, 0);
   const totalMins = activeBike.rides.reduce((s, r) => s + r.durationMinutes, 0);
-  const avgDist = activeBike.rides.length ? totalKm / activeBike.rides.length : 0;
+  const avgKm     = activeBike.rides.length ? totalKm / activeBike.rides.length : 0;
+  const overdueN  = activeBike.components.filter(c => getStatus(c).status === "overdue").length;
+  const warnN     = activeBike.components.filter(c => getStatus(c).status === "warning").length;
 
-  const sorted = [...activeBike.components].sort((a, b) => {
-    const o = { overdue: 0, warning: 1, ok: 2 };
-    return o[getStatus(a).status] - o[getStatus(b).status];
-  });
-  const urgent = sorted.filter(c => getStatus(c).status !== "ok").slice(0, 3);
+  const urgent = [...activeBike.components]
+    .filter(c => getStatus(c).status !== "ok")
+    .sort((a, b) => getStatus(b).pct - getStatus(a).pct)
+    .slice(0, 3);
 
   return (
     <div className="page">
       <AlertBanner components={activeBike.components} />
 
-      <button className="cta-btn" onClick={onLogRide}>
-        <div>
-          <div className="cta-btn-label">Log a Ride</div>
-          <div className="cta-btn-sub">Updates all component counters</div>
+      <button className="cta" onClick={onLogRide}>
+        <div className="cta-left">
+          <div className="cta-title">Log a Ride</div>
+          <div className="cta-sub">Updates all component counters</div>
         </div>
-        <div className="cta-btn-tag">+ New ride</div>
+        <div className="cta-badge">+ New ride</div>
       </button>
 
       <div className="stat-grid">
         <div className="stat-cell">
-          <div className="stat-value">{du === "mi" ? (totalKm * 0.621371).toFixed(0) : totalKm.toFixed(0)}</div>
-          <div className="stat-label">Total {du}</div>
+          <div className="stat-val">{du === "mi" ? (U.kmToMi(totalKm)).toFixed(0) : totalKm.toFixed(0)}</div>
+          <div className="stat-lbl">Total {du}</div>
         </div>
         <div className="stat-cell">
-          <div className="stat-value">{units.formatDuration(totalMins)}</div>
-          <div className="stat-label">Ride Time</div>
+          <div className="stat-val">{U.fmtDur(totalMins)}</div>
+          <div className="stat-lbl">Ride time</div>
         </div>
         <div className="stat-cell">
-          <div className="stat-value">{activeBike.rides.length}</div>
-          <div className="stat-label">Rides</div>
+          <div className="stat-val">{activeBike.rides.length}</div>
+          <div className="stat-lbl">Rides</div>
         </div>
       </div>
 
-      <div className="stat-grid" style={{ marginBottom: 16 }}>
+      <div className="stat-grid">
         <div className="stat-cell">
-          <div className="stat-value">{units.formatDistance(avgDist, du).split(" ")[0]}</div>
-          <div className="stat-label">Avg / Ride</div>
+          <div className="stat-val">{U.fmtDist(avgKm, du).split(" ")[0]}</div>
+          <div className="stat-lbl">Avg / ride</div>
         </div>
         <div className="stat-cell">
-          <div className="stat-value">{activeBike.components.filter(c => getStatus(c).status === "overdue").length}</div>
-          <div className="stat-label">Overdue</div>
+          <div className="stat-val" style={{ color: overdueN > 0 ? "var(--red)" : "var(--text)" }}>{overdueN}</div>
+          <div className="stat-lbl">Overdue</div>
         </div>
         <div className="stat-cell">
-          <div className="stat-value">{activeBike.components.filter(c => getStatus(c).status === "warning").length}</div>
-          <div className="stat-label">Due Soon</div>
+          <div className="stat-val" style={{ color: warnN > 0 ? "var(--orange)" : "var(--text)" }}>{warnN}</div>
+          <div className="stat-lbl">Due soon</div>
         </div>
       </div>
 
       {urgent.length > 0 && (
         <>
-          <div className="section-hd">
-            <div className="section-hd-title">Needs Attention</div>
-            <button className="text-btn" onClick={onGoComponents}>View all</button>
+          <div className="sec">
+            <div className="sec-title">Needs attention</div>
+            <button className="tact" onClick={onGoComponents}>View all</button>
           </div>
           {urgent.map(c => {
             const { pct, status } = getStatus(c);
-            const warnPct = ((c.intervalValue - c.warnBuffer) / c.intervalValue) * 100;
+            const warnPct = c.intervalValue > 0 ? ((c.intervalValue - c.warnBuffer) / c.intervalValue) * 100 : 0;
             return (
-              <div key={c.id} className={`comp-card ${status}`} onClick={onGoComponents} style={{ cursor: "pointer" }}>
+              <div key={c.id} className={`comp-card ${status}`} onClick={onGoComponents}>
                 <div className="comp-card-top">
                   <div>
                     <div className="comp-name">{c.name}</div>
-                    <div className="comp-meta">{units.formatAccumulated(c, du)} of {units.formatInterval(c, du)}</div>
+                    <div className="comp-sub">{U.fmtAccum(c, du)} of {U.fmtInterval(c, du)}</div>
                   </div>
-                  <span className={`badge ${status}`}>{status === "warning" ? "Due Soon" : "Overdue"}</span>
+                  <span className={`badge ${status}`}>{status === "warning" ? "Due soon" : "Overdue"}</span>
                 </div>
-                <ProgressBar pct={pct} status={status} warnPct={warnPct}
-                  leftLabel={units.formatAccumulated(c, du)}
-                  rightLabel={`${Math.min(Math.round(pct), 100)}%`} />
+                <ProgBar pct={pct} status={status} warnPct={warnPct} />
               </div>
             );
           })}
@@ -897,17 +1157,14 @@ function DashboardTab({ onLogRide, onGoComponents }) {
 
       {activeBike.rides.length > 0 && (
         <>
-          <div className="section-hd" style={{ marginTop: 8 }}>
-            <div className="section-hd-title">Recent Rides</div>
+          <div className="sec" style={{ marginTop: 8 }}>
+            <div className="sec-title">Recent rides</div>
           </div>
           {activeBike.rides.slice(0, 3).map(r => (
-            <div key={r.id} className="ride-item" style={{ cursor: "default" }}>
-              <div className="ride-accent-bar" />
+            <div key={r.id} className="ride-row">
+              <div className="ride-bar" />
               <div className="ride-body">
-                <div className="ride-primary">
-                  <span className="ride-dist">{units.formatDistance(r.distanceKm, du)}</span>
-                  <span className="ride-dur">{units.formatDuration(r.durationMinutes)}</span>
-                </div>
+                <div><span className="ride-dist">{U.fmtDist(r.distanceKm, du)}</span><span className="ride-dur">{U.fmtDur(r.durationMinutes)}</span></div>
                 {r.notes && <div className="ride-notes">{r.notes}</div>}
                 <div className="ride-date">{new Date(r.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</div>
               </div>
@@ -919,16 +1176,13 @@ function DashboardTab({ onLogRide, onGoComponents }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TAB: COMPONENTS
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── Components Tab ────────────────────────────────────────────────────────
 function ComponentsTab() {
   const { activeBike, state } = useApp();
   const du = state.distanceUnit;
-  const [showAdd, setShowAdd] = useState(false);
-  const [detail, setDetail] = useState(null);    // component being viewed
-  const [service, setService] = useState(null);  // component being serviced
+  const [showAdd,  setShowAdd]  = useState(false);
+  const [detailId, setDetailId] = useState(null); // compId
+  const [svcComp,  setSvcComp]  = useState(null); // comp object
 
   if (!activeBike) return null;
 
@@ -939,60 +1193,52 @@ function ComponentsTab() {
 
   return (
     <div className="page">
-      <div className="section-hd">
-        <div className="section-hd-title">Components ({activeBike.components.length})</div>
-        <button className="text-btn" onClick={() => setShowAdd(true)}>+ Add component</button>
+      <div className="sec">
+        <div className="sec-title">Components ({activeBike.components.length})</div>
+        <button className="tact" onClick={() => setShowAdd(true)}>+ Add</button>
       </div>
 
       {activeBike.components.length === 0 && (
         <div className="empty">
-          <div className="empty-icon"><svg width="24" height="24" stroke="var(--text3)" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg></div>
           <div className="empty-title">No components yet</div>
-          <div className="empty-sub">Add your chain, fork, brake pads — any part you want to track. Tap a component anytime to view its full service history.</div>
-          <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowAdd(true)}>Add first component</button>
+          <div className="empty-sub">Add your chain, fork, brake pads — anything you want to track. Tap any component to view its full service history.</div>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>Add first component</button>
         </div>
       )}
 
       {sorted.map(c => {
         const { pct, status } = getStatus(c);
-        const warnPct = ((c.intervalValue - c.warnBuffer) / c.intervalValue) * 100;
-        const lastEntry = c.serviceLog[0];
+        const warnPct = c.intervalValue > 0 ? ((c.intervalValue - c.warnBuffer) / c.intervalValue) * 100 : 0;
+        const last = c.serviceLog[0];
         return (
-          <div key={c.id} className={`comp-card ${status}`} onClick={() => setDetail(c)}>
+          <div key={c.id} className={`comp-card ${status}`} onClick={() => setDetailId(c.id)}>
             <div className="comp-card-top">
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="comp-name">{c.name}</div>
-                <div className="comp-meta">{units.formatAccumulated(c, du)} used · {units.formatInterval(c, du)} interval</div>
+                <div className="comp-sub">{U.fmtAccum(c, du)} of {U.fmtInterval(c, du)}</div>
               </div>
-              <span className={`badge ${status}`}>{status === "ok" ? "OK" : status === "warning" ? "Due Soon" : "Overdue"}</span>
+              <span className={`badge ${status}`}>{status === "ok" ? "OK" : status === "warning" ? "Due soon" : "Overdue"}</span>
             </div>
-            <ProgressBar pct={pct} status={status} warnPct={warnPct}
-              leftLabel={units.formatAccumulated(c, du)}
-              rightLabel={`${Math.min(Math.round(pct), 100)}% used`} />
+            <ProgBar pct={pct} status={status} warnPct={warnPct} />
             <div className="comp-footer" onClick={e => e.stopPropagation()}>
-              <div className="comp-last-service">
-                {lastEntry ? `Last serviced ${new Date(lastEntry.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : "Never serviced"}
-              </div>
-              <div className="action-row">
-                <button className="act" onClick={e => { e.stopPropagation(); setDetail(c); }}>View</button>
-                <button className="act primary" onClick={e => { e.stopPropagation(); setService(c); }}>Service</button>
+              <div className="comp-serviced">{last ? `Serviced ${new Date(last.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : "Never serviced"}</div>
+              <div style={{ display: "flex", gap: 4 }}>
+                <button className="tact muted" style={{ fontSize: 13 }} onClick={e => { e.stopPropagation(); setDetailId(c.id); }}>Details</button>
+                <button className="tact" style={{ fontSize: 13 }} onClick={e => { e.stopPropagation(); setSvcComp(c); }}>Service</button>
               </div>
             </div>
           </div>
         );
       })}
 
-      {showAdd && <ComponentSheet bikeId={activeBike.id} onClose={() => setShowAdd(false)} />}
-      {detail && <ComponentDetailSheet bikeId={activeBike.id} component={activeBike.components.find(c => c.id === detail.id) || detail} onClose={() => setDetail(null)} />}
-      {service && <ServiceSheet bikeId={activeBike.id} component={service} onClose={() => setService(null)} />}
+      {showAdd  && <CompSheet bikeId={activeBike.id} onClose={() => setShowAdd(false)} />}
+      {detailId && <CompDetailSheet bikeId={activeBike.id} compId={detailId} onClose={() => setDetailId(null)} />}
+      {svcComp  && <ServiceSheet bikeId={activeBike.id} comp={svcComp} onClose={() => setSvcComp(null)} />}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TAB: RIDES
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── Rides Tab ─────────────────────────────────────────────────────────────
 function RidesTab() {
   const { activeBike, state, dispatch } = useApp();
   const du = state.distanceUnit;
@@ -1001,99 +1247,90 @@ function RidesTab() {
 
   if (!activeBike) return null;
 
-  function del(ride) {
+  function deleteRide(ride) {
     if (window.confirm("Delete this ride? Component counters will be adjusted.")) {
       dispatch({ type: "DELETE_RIDE", bikeId: activeBike.id, rideId: ride.id });
     }
   }
 
-  // Group rides by month
-  const grouped = activeBike.rides.reduce((acc, r) => {
+  // Group by month
+  const groups = {};
+  activeBike.rides.forEach(r => {
     const key = new Date(r.date).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(r);
-    return acc;
-  }, {});
+    if (!groups[key]) groups[key] = { rides: [], totalKm: 0 };
+    groups[key].rides.push(r);
+    groups[key].totalKm += r.distanceKm;
+  });
 
   return (
     <div className="page">
-      <div className="section-hd">
-        <div className="section-hd-title">{activeBike.rides.length} Rides</div>
-        <button className="text-btn" onClick={() => setShowAdd(true)}>+ Log ride</button>
+      <div className="sec">
+        <div className="sec-title">{activeBike.rides.length} Rides</div>
+        <button className="tact" onClick={() => setShowAdd(true)}>+ Log ride</button>
       </div>
 
       {activeBike.rides.length === 0 && (
         <div className="empty">
-          <div className="empty-icon"><svg width="24" height="24" stroke="var(--text3)" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
           <div className="empty-title">No rides yet</div>
-          <div className="empty-sub">Log your first ride to start tracking distance and riding time. Every ride automatically updates your component service counters.</div>
-          <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowAdd(true)}>Log first ride</button>
+          <div className="empty-sub">Log your first ride. Every ride automatically updates all component service counters.</div>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>Log first ride</button>
         </div>
       )}
 
-      {Object.entries(grouped).map(([month, rides]) => (
+      {Object.entries(groups).map(([month, { rides, totalKm }]) => (
         <div key={month}>
-          <div className="section-hd" style={{ marginTop: 8 }}>
-            <div className="section-hd-title">{month}</div>
-            <div style={{ fontSize: 11, color: "var(--text3)" }}>
-              {units.formatDistance(rides.reduce((s, r) => s + r.distanceKm, 0), du)}
-            </div>
+          <div className="month-sep">
+            {month} · {U.fmtDist(totalKm, du)}
           </div>
           {rides.map(r => (
-            <div key={r.id} className="ride-item">
-              <div className="ride-accent-bar" />
+            <div key={r.id} className="ride-row">
+              <div className="ride-bar" />
               <div className="ride-body">
-                <div className="ride-primary">
-                  <span className="ride-dist">{units.formatDistance(r.distanceKm, du)}</span>
-                  <span className="ride-dur">{units.formatDuration(r.durationMinutes)}</span>
-                </div>
+                <div><span className="ride-dist">{U.fmtDist(r.distanceKm, du)}</span><span className="ride-dur">{U.fmtDur(r.durationMinutes)}</span></div>
                 {r.notes && <div className="ride-notes">{r.notes}</div>}
                 <div className="ride-date">{new Date(r.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</div>
               </div>
               <div className="ride-actions">
-                <button className="act" onClick={() => setEditRide(r)}>Edit</button>
-                <button className="act danger" onClick={() => del(r)}>Delete</button>
+                <button className="tact" style={{ fontSize: 13 }} onClick={() => setEditRide(r)}>Edit</button>
+                <button className="tact danger" style={{ fontSize: 13 }} onClick={() => deleteRide(r)}>Delete</button>
               </div>
             </div>
           ))}
         </div>
       ))}
 
-      {showAdd && <RideSheet bikeId={activeBike.id} onClose={() => setShowAdd(false)} />}
+      {showAdd  && <RideSheet bikeId={activeBike.id} onClose={() => setShowAdd(false)} />}
       {editRide && <RideSheet bikeId={activeBike.id} initial={editRide} onClose={() => setEditRide(null)} />}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TAB: SETTINGS
-// ─────────────────────────────────────────────────────────────────────────────
-
+// ─── Settings Tab ──────────────────────────────────────────────────────────
 function SettingsTab() {
-  const { state, dispatch, activeBike } = useApp();
+  const { state, dispatch } = useApp();
   const [showAddBike, setShowAddBike] = useState(false);
-  const [editBike, setEditBike] = useState(null);
+  const [editBike,    setEditBike]    = useState(null);
   const fileRef = useRef();
 
   function exportData() {
-    const json = JSON.stringify(state, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = "biketracker-backup.json"; a.click();
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "biketracker-backup.json"; a.click();
     URL.revokeObjectURL(url);
   }
 
   function importData(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = evt => {
+    reader.onload = ev => {
       try {
-        const data = JSON.parse(evt.target.result);
-        if (!data.bikes || !Array.isArray(data.bikes)) { alert("Invalid backup file."); return; }
-        if (window.confirm("This will replace all current data. Are you sure?")) {
-          dispatch({ type: "IMPORT_DATA", state: data });
+        const data = JSON.parse(ev.target.result);
+        if (!data.bikes || !Array.isArray(data.bikes)) { alert("That doesn't look like a BikeTracker backup file."); return; }
+        if (window.confirm("This will replace all current data with the backup. Are you sure?")) {
+          dispatch({ type: "IMPORT", state: data });
         }
-      } catch { alert("Could not read that file. Make sure it's a BikeTracker backup."); }
+      } catch { alert("Couldn't read that file. Make sure it's a BikeTracker backup."); }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -1103,139 +1340,157 @@ function SettingsTab() {
     <div className="page">
 
       {/* Bikes */}
-      <div className="section-hd">
-        <div className="section-hd-title">Your Bikes</div>
-        <button className="text-btn" onClick={() => setShowAddBike(true)}>+ Add bike</button>
+      <div className="sec">
+        <div className="sec-title">Your Bikes</div>
+        <button className="tact" onClick={() => setShowAddBike(true)}>+ Add bike</button>
       </div>
-      <div className="card" style={{ padding: "4px 16px", marginBottom: 16 }}>
-        {state.bikes.map(bike => (
-          <div key={bike.id} className="bike-row">
-            <div className="bike-dot" style={{ background: bike.color }} />
-            <div style={{ flex: 1 }}>
-              <div className="bike-row-name">{bike.name}{bike.id === state.activeBikeId && <span style={{ fontSize: 11, color: "var(--accent)", marginLeft: 8, fontWeight: 600 }}>Active</span>}</div>
-              <div className="bike-row-sub">{bike.rides.length} rides · {bike.components.length} components</div>
+      <div className="card">
+        <div style={{ padding: "0 16px" }}>
+          {state.bikes.map(b => (
+            <div key={b.id} className="bike-row">
+              <div className="bike-dot" style={{ background: b.color }} />
+              <div className="bike-row-info">
+                <div className="bike-row-name">
+                  {b.name}
+                  {b.id === state.activeBikeId && (
+                    <span style={{ fontSize: 11, color: "var(--accent)", marginLeft: 8, fontWeight: 700 }}>Active</span>
+                  )}
+                </div>
+                <div className="bike-row-sub">{b.rides.length} rides · {b.components.length} components</div>
+              </div>
+              <div style={{ display: "flex", gap: 4 }}>
+                {b.id !== state.activeBikeId && (
+                  <button className="tact muted" style={{ fontSize: 13 }} onClick={() => dispatch({ type: "SET_ACTIVE", id: b.id })}>Switch</button>
+                )}
+                <button className="tact" style={{ fontSize: 13 }} onClick={() => setEditBike(b)}>Edit</button>
+              </div>
             </div>
-            <div className="action-row">
-              {bike.id !== state.activeBikeId && <button className="act" onClick={() => dispatch({ type: "SET_ACTIVE_BIKE", id: bike.id })}>Switch</button>}
-              <button className="act" onClick={() => setEditBike(bike)}>Edit</button>
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* Preferences */}
-      <div className="section-hd"><div className="section-hd-title">Preferences</div></div>
-      <div className="card" style={{ padding: "0 16px", marginBottom: 16 }}>
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Distance Unit</div>
-            <div className="settings-row-sub">Currently showing in {state.distanceUnit === "km" ? "kilometres" : "miles"}</div>
-          </div>
-          <div className="seg" style={{ width: 120 }}>
-            <button className={`seg-opt ${state.distanceUnit === "km" ? "active" : ""}`} onClick={() => state.distanceUnit !== "km" && dispatch({ type: "TOGGLE_UNIT" })}>km</button>
-            <button className={`seg-opt ${state.distanceUnit === "mi" ? "active" : ""}`} onClick={() => state.distanceUnit !== "mi" && dispatch({ type: "TOGGLE_UNIT" })}>mi</button>
+      <div className="sec"><div className="sec-title">Preferences</div></div>
+      <div className="card">
+        <div style={{ padding: "0 16px" }}>
+          <div className="set-row">
+            <div className="set-row-text">
+              <div className="set-row-label">Distance Unit</div>
+              <div className="set-row-sub">Showing in {state.distanceUnit === "km" ? "kilometres" : "miles"}</div>
+            </div>
+            <div className="seg" style={{ width: 110 }}>
+              <button className={`seg-opt${state.distanceUnit === "km" ? " active" : ""}`} onClick={() => state.distanceUnit !== "km" && dispatch({ type: "TOGGLE_UNIT" })}>km</button>
+              <button className={`seg-opt${state.distanceUnit === "mi" ? " active" : ""}`} onClick={() => state.distanceUnit !== "mi" && dispatch({ type: "TOGGLE_UNIT" })}>mi</button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Data */}
-      <div className="section-hd"><div className="section-hd-title">Data</div></div>
-      <div className="card" style={{ padding: "0 16px", marginBottom: 16 }}>
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Export Backup</div>
-            <div className="settings-row-sub">Download all your data as a JSON file</div>
+      <div className="sec"><div className="sec-title">Data</div></div>
+      <div className="card">
+        <div style={{ padding: "0 16px" }}>
+          <div className="set-row">
+            <div className="set-row-text">
+              <div className="set-row-label">Export Backup</div>
+              <div className="set-row-sub">Download all data as a JSON file</div>
+            </div>
+            <button className="chip chip-accent" onClick={exportData}>Export</button>
           </div>
-          <button className="stroke-btn primary" onClick={exportData}>Export</button>
-        </div>
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Import Backup</div>
-            <div className="settings-row-sub">Restore from a previous export</div>
+          <div className="set-row">
+            <div className="set-row-text">
+              <div className="set-row-label">Import Backup</div>
+              <div className="set-row-sub">Restore from a previous export</div>
+            </div>
+            <button className="chip" style={{ background: "var(--surface2)", color: "var(--text2)" }} onClick={() => fileRef.current?.click()}>Import</button>
+            <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }} onChange={importData} />
           </div>
-          <button className="stroke-btn" onClick={() => fileRef.current?.click()}>Import</button>
-          <input ref={fileRef} type="file" accept=".json" style={{ display: "none" }} onChange={importData} />
         </div>
       </div>
 
       {/* About */}
-      <div className="section-hd"><div className="section-hd-title">About</div></div>
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 6 }}>BikeTracker</div>
-        <div style={{ fontSize: 13, color: "var(--text3)", lineHeight: 1.7 }}>
-          Track service intervals for all your bike components. Log rides to automatically update counters and get warned before maintenance is due.<br /><br />
-          Data is stored privately in your browser. Use Export Backup regularly to keep a safe copy.
+      <div className="sec"><div className="sec-title">About</div></div>
+      <div className="card card-body" style={{ marginBottom: 0 }}>
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>BikeTracker</div>
+        <div style={{ fontSize: 14, color: "var(--text3)", lineHeight: 1.7 }}>
+          Track service intervals for all your bike components. Log rides to automatically update counters and get warned before maintenance is due.
+          <br /><br />
+          Your data is stored privately in your browser. Use Export Backup regularly to keep a safe copy.
         </div>
-        <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 12 }}>Version 3.0</div>
+        <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 12 }}>Version 4.0</div>
       </div>
 
       {showAddBike && <BikeSheet onClose={() => setShowAddBike(false)} />}
-      {editBike && <BikeSheet initial={editBike} onClose={() => setEditBike(null)} />}
+      {editBike    && <BikeSheet initial={editBike} onClose={() => setEditBike(null)} />}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ROOT APP
-// ─────────────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// ROOT
+// ═══════════════════════════════════════════════════════════════════════════
 
-function MainView() {
+function App() {
   const { state, dispatch, activeBike } = useApp();
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState("overview");
   const [showLogRide, setShowLogRide] = useState(false);
   const [showAddBike, setShowAddBike] = useState(false);
 
-  const alertCount = activeBike ? activeBike.components.filter(c => getStatus(c).status !== "ok").length : 0;
+  const alertCount = activeBike
+    ? activeBike.components.filter(c => getStatus(c).status !== "ok").length
+    : 0;
 
   const tabs = [
-    { id: "dashboard", label: "Overview", Icon: Icon.Dashboard },
-    { id: "components", label: "Components", Icon: Icon.Components },
-    { id: "rides", label: "Rides", Icon: Icon.Rides },
-    { id: "settings", label: "Settings", Icon: Icon.Settings },
+    { id: "overview",    label: "Overview",
+      svg: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></> },
+    { id: "components",  label: "Components",
+      svg: <><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></> },
+    { id: "rides",       label: "Rides",
+      svg: <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></> },
+    { id: "settings",    label: "Settings",
+      svg: <><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></> },
   ];
 
   return (
-    <div className="shell">
-      <style>{CSS}</style>
-
+    <>
       {/* Top bar */}
       <header className="topbar">
-        <div className="topbar-wordmark">Bike<span>Tracker</span></div>
-        {activeBike && (
-          <div className="topbar-bike-name" style={{ color: activeBike.color, fontWeight: 600 }}>
-            {activeBike.name}
+        <div className="topbar-inner">
+          <div className="topbar-logo">Bike<span>Tracker</span></div>
+          {activeBike && <div className="topbar-bike">{activeBike.name}</div>}
+          <div className="topbar-right">
+            {alertCount > 0 && (
+              <div style={{ width: 9, height: 9, borderRadius: "50%", background: "var(--red)", flexShrink: 0 }} />
+            )}
+            {activeBike && (
+              <button className="chip chip-accent" onClick={() => setShowLogRide(true)}>+ Ride</button>
+            )}
           </div>
-        )}
-        <div className="topbar-right">
-          {alertCount > 0 && <div className="alert-dot" title={`${alertCount} alerts`} />}
-          {activeBike && (
-            <button className="pill-btn accent" onClick={() => setShowLogRide(true)}>+ Ride</button>
-          )}
         </div>
       </header>
 
-      {/* Page content */}
+      {/* Page area */}
       {!activeBike ? (
-        <div className="no-bike page">
-          <h2>Welcome to BikeTracker</h2>
-          <p>Add your first bike to start tracking rides and component service intervals.</p>
-          <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowAddBike(true)}>Add your first bike</button>
+        <div className="welcome">
+          <h1>Welcome to BikeTracker</h1>
+          <p>Add your first bike to start logging rides and tracking component service intervals.</p>
+          <button className="btn btn-primary" onClick={() => setShowAddBike(true)}>Add your first bike</button>
         </div>
       ) : (
         <>
-          {tab === "dashboard" && <DashboardTab onLogRide={() => setShowLogRide(true)} onGoComponents={() => setTab("components")} />}
+          {tab === "overview"   && <OverviewTab    onLogRide={() => setShowLogRide(true)} onGoComponents={() => setTab("components")} />}
           {tab === "components" && <ComponentsTab />}
-          {tab === "rides" && <RidesTab />}
-          {tab === "settings" && <SettingsTab />}
+          {tab === "rides"      && <RidesTab />}
+          {tab === "settings"   && <SettingsTab />}
         </>
       )}
 
       {/* Bottom nav */}
-      <nav className="bottom-nav">
+      <nav className="nav">
         {tabs.map(t => (
-          <button key={t.id} className={`nav-tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
-            <div className="nav-tab-icon"><t.Icon /></div>
-            <span className="nav-tab-label">{t.label}</span>
+          <button key={t.id} className={`nav-tab${tab === t.id ? " active" : ""}`} onClick={() => setTab(t.id)}>
+            <svg viewBox="0 0 24 24">{t.svg}</svg>
+            <span className="nav-tab-lbl">{t.label}</span>
           </button>
         ))}
       </nav>
@@ -1243,14 +1498,13 @@ function MainView() {
       {/* Global sheets */}
       {showLogRide && activeBike && <RideSheet bikeId={activeBike.id} onClose={() => setShowLogRide(false)} />}
       {showAddBike && <BikeSheet onClose={() => setShowAddBike(false)} />}
-    </div>
+    </>
   );
 }
 
-function App() {
-  return <AppProvider><MainView /></AppProvider>;
-}
-ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <AppProvider><App /></AppProvider>
+);
 </script>
 </body>
 </html>
